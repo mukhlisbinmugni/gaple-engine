@@ -1,60 +1,52 @@
-"""
-Gaple Engine
-Version : 0.1
-Author  : Mukhlis & ChatGPT
-
-Tahap pertama:
-- Membuat deck domino
-- Mengocok kartu
-- Membagikan kartu
-"""
-
-import random
+from deck import Deck
+from player import Player
 
 
 class GapleEngine:
+    """
+    Engine utama permainan Gaple.
+    Bertanggung jawab mengatur jalannya permainan,
+    bukan logika kartu.
+    """
 
     def __init__(self):
-        self.deck = []
-        self.players = {
-            "P1": [],
-            "P2": [],
-            "P3": [],
-            "Mukhlis": []
-        }
+        self.deck = None
+        self.players = []
+        self.current_turn = 0
 
-    def create_deck(self):
-        self.deck = []
+    def new_game(self):
+        """Memulai permainan baru."""
 
-        for i in range(7):
-            for j in range(i, 7):
-                self.deck.append((i, j))
+        self.deck = Deck()
+        self.deck.shuffle()
 
-    def shuffle_deck(self):
-        random.shuffle(self.deck)
+        self.players = [
+            Player("P1"),
+            Player("P2"),
+            Player("P3"),
+            Player("Mukhlis")
+        ]
 
-    def deal_cards(self):
-        for player in self.players:
-            self.players[player] = []
+        hands = self.deck.deal()
 
-        for _ in range(7):
-            for player in self.players:
-                self.players[player].append(self.deck.pop())
+        for player, hand in zip(self.players, hands):
+            for card in hand:
+                player.draw(card)
 
-    def show_cards(self):
+        self.current_turn = 0
+
+    def show_hands(self):
         print("=== Kartu Pemain ===")
 
         for player in self.players:
-            print(player)
-            print(sorted(self.players[player]))
+            print(player.name)
+            print(sorted(player.hand, key=lambda c: (c.left, c.right)))
             print()
 
-        print("Sisa kartu di deck :", len(self.deck))
+        print("Sisa kartu di deck :", len(self.deck.cards))
 
 
-engine = GapleEngine()
-
-engine.create_deck()
-engine.shuffle_deck()
-engine.deal_cards()
-engine.show_cards()
+if __name__ == "__main__":
+    engine = GapleEngine()
+    engine.new_game()
+    engine.show_hands()
