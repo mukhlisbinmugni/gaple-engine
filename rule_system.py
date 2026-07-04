@@ -16,11 +16,19 @@ class RuleSystem:
     # =========================================================
     @staticmethod
     def evaluate(game):
-        winner = RuleSystem.detect_winner(game)
-
         finish_type = RuleSystem.detect_finish_type(game)
 
-        special_result = RuleSystem.detect_special_result(game)
+        if finish_type == FinishType.GUPLAH:
+            player_points = RuleSystem.calculate_player_points(game)
+            winner = RuleSystem.find_guplah_winner(
+                player_points, game.last_move_player
+            )
+        else:
+            winner = RuleSystem.detect_winner(game)
+
+        special_result = RuleSystem.detect_special_result(
+            game, finish_type, winner
+        )
 
         penalty_changes = RuleSystem.calculate_penalty_changes(
             game,
@@ -61,9 +69,16 @@ class RuleSystem:
         (Lihat AI_CONTEXT.md: "Do not model PASAR as merely
         four consecutive PASS actions.")
 
-        GUPLAH belum diimplementasikan pada milestone ini.
-        Selama belum ada pemain yang habis kartunya, hasil
-        untuk sementara dikembalikan sebagai FinishType.NORMAL.
+        GUPLAH terjadi ketika tidak ada pemain yang habis
+        kartunya, tetapi permainan sudah berhenti (game.game_over
+        bernilai True) karena satu putaran penuh semua pemain
+        PASS. game.game_over adalah fakta yang sudah dicatat oleh
+        Game sendiri; RuleSystem hanya menafsirkannya sebagai
+        GUPLAH.
+
+        Jika belum ada pemain yang habis kartunya DAN game belum
+        berhenti, game belum selesai dan hasilnya untuk sementara
+        dikembalikan sebagai FinishType.NORMAL.
         """
 
         for player in game.players:
@@ -71,6 +86,9 @@ class RuleSystem:
                 if RuleSystem._is_pasar(game):
                     return FinishType.PASAR
                 return FinishType.DOM
+
+        if game.game_over:
+            return FinishType.GUPLAH
 
         return FinishType.NORMAL
 
@@ -116,8 +134,25 @@ class RuleSystem:
     # SPECIAL RESULT
     # =========================================================
     @staticmethod
-    def detect_special_result(game):
-        return SpecialResult.NONE
+    def detect_special_result(game, finish_type, winner):
+        """
+        Untuk finish_type selain GUPLAH, belum ada special result
+        yang didefinisikan (RATUS/RIBU reserved untuk masa depan).
+
+        Untuk GUPLAH, special result menandai hasil dari upaya
+        pembuat guplah, terpisah dari finish_type itu sendiri:
+        - SpecialResult.GUPLAH: pembuat guplah adalah winner.
+        - SpecialResult.FAILED_GUPLAH: pembuat guplah BUKAN
+          winner (pip-nya kalah dari pemain lain).
+        """
+
+        if finish_type != FinishType.GUPLAH:
+            return SpecialResult.NONE
+
+        if game.last_move_player == winner:
+            return SpecialResult.GUPLAH
+
+        return SpecialResult.FAILED_GUPLAH
 
     # =========================================================
     # PENALTY SYSTEM
@@ -131,6 +166,11 @@ class RuleSystem:
 
         if finish_type == FinishType.PASAR:
             return RuleSystem.calculate_pasar_score(player_points, winner)
+
+        if finish_type == FinishType.GUPLAH:
+            return RuleSystem.calculate_guplah_score(
+                player_points, winner, game.last_move_player
+            )
 
         return {}
 
@@ -314,6 +354,142 @@ class RuleSystem:
         )
 
     # =========================================================
+    # GUPLAH WINNER
+    #
+    # Berbeda dari DOM/PASAR, GUPLAH mencari WINNER (bukan
+    # penerima denda) di antara SELURUH pemain (tidak ada pemain
+    # yang dikecualikan seperti "winner" pada DOM), karena tidak
+    # ada satu pun pemain yang menghabiskan kartunya.
+    #
+    # Urutannya mencerminkan MASTER_CORE.md, dengan dua
+    # perbedaan penting dari DOM:
+    #
+    # 1. Setelah Step 1, ada pengecekan status "pembuat guplah":
+    #    jika pembuat guplah termasuk salah satu kandidat yang
+    #    tied di pip terkecil, dia menang langsung tanpa masuk
+    #    ke step manapun berikutnya.
+    # 2. Step 2, 3.0, 3a, 3b, dan 4 seluruhnya memakai arah
+    #    KEBALIKAN dari DOM: mencari beban PALING RINGAN
+    #    (jumlah kartu tersedikit, tidak punya balak, jumlah
+    #    balak tersedikit, nilai balak terendah, domino
+    #    tertinggi yang paling rendah), karena di sini kita
+    #    mencari pemenang, bukan penerima hukuman.
+    # =========================================================
+    @staticmethod
+    def find_guplah_winner(player_points, guplah_maker):
+
+        candidates = list(player_points.keys())
+
+        if len(candidates) == 1:
+            return candidates[0]
+
+        # ---------------------------------
+        # STEP 1: TOTAL PIP TERKECIL
+        # ---------------------------------
+        min_points = min(player_points[p] for p in candidates)
+        candidates = [p for p in candidates if player_points[p] == min_points]
+
+        if len(candidates) == 1:
+            return candidates[0]
+
+        # ---------------------------------
+        # OVERRIDE: STATUS PEMBUAT GUPLAH
+        # Jika pembuat guplah termasuk salah satu kandidat yang
+        # tied di pip terkecil, dia menang langsung.
+        # ---------------------------------
+        if guplah_maker in candidates:
+            return guplah_maker
+
+        # ---------------------------------
+        # STEP 2: JUMLAH KARTU TERSEDIKIT
+        # ---------------------------------
+        min_cards = min(len(p.hand) for p in candidates)
+        candidates = [p for p in candidates if len(p.hand) == min_cards]
+
+        if len(candidates) == 1:
+            return candidates[0]
+
+        # ---------------------------------
+        # STEP 3.0: KETIADAAN BALAK LEBIH DIUTAMAKAN
+        # ---------------------------------
+        clean_players = [
+            p for p in candidates if not RuleSystem._balak_dominoes(p)
+        ]
+
+        if len(clean_players) == 1:
+            return clean_players[0]
+
+        if len(clean_players) >= 2:
+            # Baik ketika sebagian kandidat "bersih" (tidak
+            # pegang balak) dan sisanya pegang balak (pemegang
+            # balak dieliminasi di sini), maupun ketika TIDAK
+            # ADA satu pun kandidat yang pegang balak (clean_players
+            # == candidates), kedua kasus ini sama-sama berujung
+            # langsung ke Step 4 tanpa melalui Step 3a/3b.
+            return RuleSystem._guplah_step4(clean_players)
+
+        # Tidak ada satu pun kandidat yang "bersih": semua
+        # kandidat memegang setidaknya satu balak.
+
+        # ---------------------------------
+        # STEP 3a: JUMLAH BALAK TERSEDIKIT
+        # ---------------------------------
+        min_balak_count = min(
+            len(RuleSystem._balak_dominoes(p)) for p in candidates
+        )
+        candidates = [
+            p for p in candidates
+            if len(RuleSystem._balak_dominoes(p)) == min_balak_count
+        ]
+
+        if len(candidates) == 1:
+            return candidates[0]
+
+        # ---------------------------------
+        # STEP 3b: NILAI BALAK TERTINGGI YANG PALING RENDAH
+        # ---------------------------------
+        min_balak_value = min(
+            RuleSystem._highest_balak_value(p) for p in candidates
+        )
+        candidates = [
+            p for p in candidates
+            if RuleSystem._highest_balak_value(p) == min_balak_value
+        ]
+
+        if len(candidates) == 1:
+            return candidates[0]
+
+        raise RuntimeError(
+            "Unexpected tie after GUPLAH Step 3b: multiple players "
+            "have identical lowest highest-balak value."
+        )
+
+    # =========================================================
+    # GUPLAH STEP 4 (INTERNAL)
+    # Sama seperti Step 4 DOM (memakai highest_domino/domino_rank
+    # milik masing-masing pemain), tetapi yang menang adalah
+    # domino tertinggi yang NILAINYA PALING RENDAH di antara
+    # para kandidat.
+    # =========================================================
+    @staticmethod
+    def _guplah_step4(candidates):
+        def highest_rank(player):
+            return RuleSystem.domino_rank(
+                RuleSystem.highest_domino(player)
+            )
+
+        best_rank = min(highest_rank(p) for p in candidates)
+        winners = [p for p in candidates if highest_rank(p) == best_rank]
+
+        if len(winners) == 1:
+            return winners[0]
+
+        raise RuntimeError(
+            "Unexpected tie after GUPLAH Step 4: multiple players "
+            "hold an identically-ranked highest domino."
+        )
+
+    # =========================================================
     # DOM SCORE
     # =========================================================
     @staticmethod
@@ -348,5 +524,37 @@ class RuleSystem:
 
         scores[winner] = -4
         scores[loser] = 4
+
+        return scores
+
+    # =========================================================
+    # GUPLAH SCORE
+    #
+    # Winner selalu -5.
+    #
+    # Ada dua mode distribusi penalti, tergantung apakah
+    # pembuat guplah adalah winner atau bukan:
+    #
+    # - Jika pembuat guplah == winner: SEMUA pemain lain
+    #   (bukan winner) mendapat +5 masing-masing.
+    # - Jika pembuat guplah != winner: HANYA pembuat guplah
+    #   yang mendapat +5. Pemain lain yang bukan winner dan
+    #   bukan pembuat guplah tidak dihukum sama sekali (0).
+    # =========================================================
+    @staticmethod
+    def calculate_guplah_score(player_points, winner, guplah_maker):
+        scores = {p: 0 for p in player_points}
+
+        if winner is None:
+            return scores
+
+        scores[winner] = -5
+
+        if guplah_maker == winner:
+            for p in player_points:
+                if p != winner:
+                    scores[p] = 5
+        else:
+            scores[guplah_maker] = 5
 
         return scores

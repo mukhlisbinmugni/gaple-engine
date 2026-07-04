@@ -472,3 +472,298 @@ def test_rule_system_pasar_evaluate_end_to_end():
 
     assert result.finish_type == FinishType.PASAR
     assert result.penalty_changes[result.winner] == -4
+
+
+# =========================================================
+# GUPLAH DETECTION
+# =========================================================
+
+def test_rule_system_guplah_finish_when_blocked_and_no_one_empty():
+    game = Game()
+
+    fill_all_players(game)
+
+    game.game_over = True
+    game.pass_count = len(game.players)
+    game.last_move_player = game.players[0]
+
+    result = RuleSystem.evaluate(game)
+
+    assert result.finish_type == FinishType.GUPLAH
+
+
+def test_rule_system_normal_when_not_over_and_no_one_empty():
+    game = Game()
+
+    fill_all_players(game)
+
+    game.game_over = False
+
+    result = RuleSystem.evaluate(game)
+
+    assert result.finish_type == FinishType.NORMAL
+
+
+# =========================================================
+# GUPLAH WINNER — STEP 1 (PIP TERKECIL, UNIK)
+# =========================================================
+
+def test_find_guplah_winner_smallest_pip_unique():
+    game = Game()
+
+    game.players[0].hand = [Domino(1, 6), Domino(2, 2)]  # 7+4=11
+    game.players[1].hand = [Domino(4, 6), Domino(5, 2)]  # 10+7=17
+    game.players[2].hand = [Domino(3, 3), Domino(4, 0)]  # 6+4=10
+    game.players[3].hand = [Domino(6, 6)]                # 12
+
+    points = RuleSystem.calculate_player_points(game)
+
+    guplah_maker = game.players[0]
+
+    winner = RuleSystem.find_guplah_winner(points, guplah_maker)
+
+    assert winner == game.players[2]
+
+
+# =========================================================
+# GUPLAH WINNER — OVERRIDE PEMBUAT GUPLAH
+# =========================================================
+
+def test_find_guplah_winner_maker_override_when_tied():
+    game = Game()
+
+    # P1 dan P2 sama-sama pip 4, tied. P1 adalah pembuat guplah,
+    # sehingga dia menang langsung tanpa masuk Step 2/3/4.
+    game.players[0].hand = [Domino(2, 2)]  # pip 4
+    game.players[1].hand = [Domino(3, 1)]  # pip 4
+    game.players[2].hand = [Domino(6, 6)]  # pip 12
+    game.players[3].hand = [Domino(5, 5)]  # pip 10
+
+    points = RuleSystem.calculate_player_points(game)
+
+    guplah_maker = game.players[0]
+
+    winner = RuleSystem.find_guplah_winner(points, guplah_maker)
+
+    assert winner == game.players[0]
+
+
+def test_find_guplah_winner_maker_not_tied_falls_back_to_step2():
+    game = Game()
+
+    # P1 dan P3 tied pip terkecil (6), P3 punya kartu lebih
+    # sedikit (menang, arah dibalik dari DOM).
+    game.players[0].hand = [Domino(4, 1), Domino(1, 0)]  # 5+1=6, 2 kartu
+    game.players[1].hand = [Domino(6, 0)]                # 6, 1 kartu
+    game.players[2].hand = [Domino(6, 6)]                # 12
+    game.players[3].hand = [Domino(6, 6)]                # dummy, akan dioverride
+
+    # Gunakan 3 pemain saja secara efektif: buat P4 gugur jauh.
+    game.players[3].hand = [Domino(6, 6), Domino(5, 5)]  # 12+10=22
+
+    # Pembuat guplah adalah P3 (pip 12), bukan bagian dari yang
+    # tied pip terkecil (P1=6, P2=6), sehingga override tidak
+    # berlaku dan lanjut ke Step 2.
+    guplah_maker = game.players[2]
+
+    points = RuleSystem.calculate_player_points(game)
+
+    winner = RuleSystem.find_guplah_winner(points, guplah_maker)
+
+    assert winner == game.players[1]
+
+
+# =========================================================
+# GUPLAH WINNER — STEP 3.0 (SATU PEMAIN BERSIH DARI BALAK)
+# =========================================================
+
+def test_find_guplah_winner_exactly_one_clean_player():
+    game = Game()
+
+    # P1 punya balak, P2 sama sekali tidak punya domino kembar.
+    # Keduanya tied pip 6, tied 2 kartu.
+    game.players[0].hand = [Domino(3, 3), Domino(0, 0)]  # 6+0=6, 2 balak
+    game.players[1].hand = [Domino(4, 1), Domino(1, 0)]  # 5+1=6, tanpa balak
+
+    game.players[2].hand = [Domino(6, 6)]                # pip 12, gugur di Step 1
+    game.players[3].hand = [Domino(5, 5)]                # pip 10, gugur di Step 1
+
+    guplah_maker = game.players[2]  # bukan bagian dari yang tied
+
+    points = RuleSystem.calculate_player_points(game)
+
+    winner = RuleSystem.find_guplah_winner(points, guplah_maker)
+
+    assert winner == game.players[1]
+
+
+# =========================================================
+# GUPLAH WINNER — STEP 3.0 (DUA PEMAIN BERSIH -> LANGSUNG STEP 4)
+# =========================================================
+
+def test_find_guplah_winner_multiple_clean_players_skip_to_step4():
+    game = Game()
+
+    # P1 dan P2 sama-sama bersih (tanpa balak), P3 pegang balak.
+    # Ketiganya tied pip 6, tied 2 kartu.
+    game.players[0].hand = [Domino(4, 1), Domino(1, 0)]  # 5+1=6, tanpa balak, tertinggi=4-1(sum5)
+    game.players[1].hand = [Domino(3, 1), Domino(2, 0)]  # 4+2=6, tanpa balak, tertinggi=3-1(sum4)
+    game.players[2].hand = [Domino(3, 3), Domino(0, 0)]  # 6+0=6, balak
+
+    game.players[3].hand = [Domino(6, 6), Domino(5, 5)]  # gugur di Step 1
+
+    guplah_maker = game.players[3]  # bukan bagian dari yang tied
+
+    points = RuleSystem.calculate_player_points(game)
+
+    winner = RuleSystem.find_guplah_winner(points, guplah_maker)
+
+    # P3 dieliminasi (satu-satunya pemegang balak), lanjut Step 4
+    # antara P1 vs P2: sum terendah menang -> P2 (sum 4 < sum 5).
+    assert winner == game.players[1]
+
+
+# =========================================================
+# GUPLAH WINNER — STEP 3a (SEMUA PEGANG BALAK, BEDA JUMLAH)
+# =========================================================
+
+def test_find_guplah_winner_all_hold_balak_resolved_by_count():
+    game = Game()
+
+    # P1 dan P2 tied pip 13, tied 3 kartu, sama-sama pegang balak.
+    # P1 pegang 2 balak, P2 pegang 1 balak -> P2 menang (lebih sedikit).
+    game.players[0].hand = [Domino(5, 5), Domino(1, 1), Domino(1, 0)]  # 10+2+1=13
+    game.players[1].hand = [Domino(4, 4), Domino(2, 0), Domino(3, 0)]  # 8+2+3=13
+    game.players[2].hand = [Domino(6, 6), Domino(5, 4)]  # gugur di Step 1
+    game.players[3].hand = [Domino(6, 6), Domino(6, 5)]  # gugur di Step 1
+
+    guplah_maker = game.players[2]
+
+    points = RuleSystem.calculate_player_points(game)
+
+    winner = RuleSystem.find_guplah_winner(points, guplah_maker)
+
+    assert winner == game.players[1]
+
+
+# =========================================================
+# GUPLAH WINNER — STEP 3b (SEMUA PEGANG BALAK, JUMLAH SAMA)
+# =========================================================
+
+def test_find_guplah_winner_all_hold_balak_resolved_by_value():
+    game = Game()
+
+    # P1 dan P2 tied pip 13, tied 3 kartu, sama-sama pegang 2 balak.
+    # Balak tertinggi P1 = 5-5 (10), balak tertinggi P2 = 4-4 (8).
+    # P2 menang (nilai balak tertinggi lebih rendah).
+    game.players[0].hand = [Domino(5, 5), Domino(1, 1), Domino(1, 0)]  # 13
+    game.players[1].hand = [Domino(4, 4), Domino(2, 2), Domino(1, 0)]  # 13
+    game.players[2].hand = [Domino(6, 6), Domino(5, 4)]
+    game.players[3].hand = [Domino(6, 6), Domino(6, 5)]
+
+    guplah_maker = game.players[2]
+
+    points = RuleSystem.calculate_player_points(game)
+
+    winner = RuleSystem.find_guplah_winner(points, guplah_maker)
+
+    assert winner == game.players[1]
+
+
+# =========================================================
+# GUPLAH SCORE — MODE 1: PEMBUAT GUPLAH = WINNER
+# =========================================================
+
+def test_calculate_guplah_score_maker_is_winner():
+    game = Game()
+
+    game.players[0].hand = [Domino(1, 0)]  # pip 1, winner
+    game.players[1].hand = [Domino(4, 6)]  # pip 10
+    game.players[2].hand = [Domino(3, 3)]  # pip 6
+    game.players[3].hand = [Domino(6, 6)]  # pip 12
+
+    points = RuleSystem.calculate_player_points(game)
+
+    winner = game.players[0]
+    guplah_maker = game.players[0]
+
+    scores = RuleSystem.calculate_guplah_score(points, winner, guplah_maker)
+
+    assert scores[game.players[0]] == -5
+    assert scores[game.players[1]] == 5
+    assert scores[game.players[2]] == 5
+    assert scores[game.players[3]] == 5
+
+
+# =========================================================
+# GUPLAH SCORE — MODE 2: PEMBUAT GUPLAH BUKAN WINNER
+# =========================================================
+
+def test_calculate_guplah_score_maker_is_not_winner():
+    game = Game()
+
+    game.players[0].hand = [Domino(6, 5)]  # pip 11, pembuat guplah, bukan winner
+    game.players[1].hand = [Domino(1, 0)]  # pip 1, winner
+    game.players[2].hand = [Domino(6, 6)]  # pip 12
+    game.players[3].hand = [Domino(5, 5)]  # pip 10
+
+    points = RuleSystem.calculate_player_points(game)
+
+    winner = game.players[1]
+    guplah_maker = game.players[0]
+
+    scores = RuleSystem.calculate_guplah_score(points, winner, guplah_maker)
+
+    assert scores[game.players[1]] == -5
+    assert scores[game.players[0]] == 5
+    assert scores[game.players[2]] == 0
+    assert scores[game.players[3]] == 0
+
+
+def test_rule_system_guplah_evaluate_end_to_end_maker_loses():
+    # Pembuat guplah BUKAN winner -> FAILED_GUPLAH.
+    game = Game()
+
+    game.players[0].hand = [Domino(6, 5)]  # pembuat guplah, bukan winner
+    game.players[1].hand = [Domino(1, 0)]  # winner
+    game.players[2].hand = [Domino(6, 6)]
+    game.players[3].hand = [Domino(5, 5)]
+
+    game.game_over = True
+    game.pass_count = len(game.players)
+    game.last_move_player = game.players[0]
+
+    result = RuleSystem.evaluate(game)
+
+    assert result.finish_type == FinishType.GUPLAH
+    assert result.special_result == SpecialResult.FAILED_GUPLAH
+    assert result.winner == game.players[1]
+    assert result.penalty_changes[game.players[1]] == -5
+    assert result.penalty_changes[game.players[0]] == 5
+    assert result.penalty_changes[game.players[2]] == 0
+    assert result.penalty_changes[game.players[3]] == 0
+
+
+def test_rule_system_guplah_evaluate_end_to_end_maker_wins():
+    # Pembuat guplah adalah winner -> SpecialResult.GUPLAH,
+    # dan SEMUA pemain lain mendapat +5.
+    game = Game()
+
+    game.players[0].hand = [Domino(1, 0)]  # pembuat guplah DAN winner
+    game.players[1].hand = [Domino(4, 6)]
+    game.players[2].hand = [Domino(3, 3)]
+    game.players[3].hand = [Domino(6, 6)]
+
+    game.game_over = True
+    game.pass_count = len(game.players)
+    game.last_move_player = game.players[0]
+
+    result = RuleSystem.evaluate(game)
+
+    assert result.finish_type == FinishType.GUPLAH
+    assert result.special_result == SpecialResult.GUPLAH
+    assert result.winner == game.players[0]
+    assert result.penalty_changes[game.players[0]] == -5
+    assert result.penalty_changes[game.players[1]] == 5
+    assert result.penalty_changes[game.players[2]] == 5
+    assert result.penalty_changes[game.players[3]] == 5

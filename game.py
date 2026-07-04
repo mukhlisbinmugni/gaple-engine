@@ -35,11 +35,13 @@ class Game:
         # Jumlah PASS berturut-turut
         self.pass_count = 0
 
-        # Move terakhir yang benar-benar dimainkan (bukan PASS).
+        # Move terakhir yang benar-benar dimainkan (bukan PASS),
+        # dan siapa yang memainkannya.
         # Fakta ini dibutuhkan oleh RuleSystem untuk mendeteksi
-        # PASAR. Game hanya mencatat fakta ini, tidak
-        # menafsirkannya.
+        # PASAR dan untuk mengidentifikasi pembuat guplah. Game
+        # hanya mencatat fakta ini, tidak menafsirkannya.
         self.last_move = None
+        self.last_move_player = None
 
     def start(self):
         """
@@ -57,6 +59,7 @@ class Game:
         self.game_over = False
         self.pass_count = 0
         self.last_move = None
+        self.last_move_player = None
 
     def active_player(self):
         """
@@ -138,8 +141,10 @@ class Game:
 
         player.play(move.dominoes[0])
 
-        # Catat move ini sebagai move terakhir yang dimainkan.
+        # Catat move ini sebagai move terakhir yang dimainkan,
+        # dan siapa yang memainkannya.
         self.last_move = move
+        self.last_move_player = player
 
         if player.is_empty():
             self.game_over = True

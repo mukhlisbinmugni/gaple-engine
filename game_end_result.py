@@ -12,6 +12,7 @@ class FinishType(Enum):
     NORMAL = auto()
     DOM = auto()
     PASAR = auto()
+    GUPLAH = auto()
 
 
 class SpecialResult(Enum):

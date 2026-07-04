@@ -1,6 +1,6 @@
 # MASTER_CORE.md
 
-Version: 4.4
+Version: 4.6
 
 Status: Active
 
@@ -382,21 +382,93 @@ greater penalty swing.
 
 # GUPLAH Philosophy
 
-GUPLAH occurs when gameplay becomes blocked and no further legal moves are possible.
+GUPLAH occurs when gameplay becomes blocked and no further legal moves are possible for any player (a full round where every player PASSes).
 
 The player who causes the block is not automatically the winner.
 
 All remaining dominoes are revealed.
 
-Winner:
+## GUPLAH Maker
 
-The player with the smallest remaining pip total.
+The GUPLAH maker is the player who last successfully played a domino before the run of PASSes that led to the block. This is a factual identity, not an interpretation: Game records who played the last move.
 
-Penalty calculation follows the GUPLAH rulebook.
+## Winner
 
-The winner and the penalty recipient may therefore be different players.
+Step 1 — Smallest Remaining Pip Total
 
-The GUPLAH penalty rulebook has not yet been formally specified. Until it is specified, implementations must not assume single-recipient or multi-recipient penalty behavior for GUPLAH, and must not reuse the DOM tie-break sequence (pip total, domino count, balak, highest domino) for GUPLAH. GUPLAH ranks players by the smallest pip total rather than the largest, so its tie-break logic must be designed independently and cannot be assumed to mirror DOM. GUPLAH penalty design is deferred to a future milestone, in the same manner as RATUS and RIBU.
+Find the player with the smallest total remaining pip count.
+
+If only one player has the smallest total, that player wins.
+
+Otherwise, continue to the GUPLAH Maker Override using only the tied players.
+
+GUPLAH Maker Override
+
+If the GUPLAH maker is one of the players tied for the smallest pip total, the GUPLAH maker wins immediately. No further step is evaluated.
+
+If the GUPLAH maker is not one of the tied players (their pip total was not the smallest), continue to Step 2 using only the tied players, exactly as if the GUPLAH maker did not exist.
+
+Step 2 — Fewest Remaining Dominoes
+
+Among the remaining tied players, compare the number of dominoes still held.
+
+The player holding the fewest remaining dominoes wins.
+
+This is the opposite direction from DOM Step 2, because DOM Step 2 identifies the heaviest burden (a penalty recipient), while GUPLAH Step 2 identifies the winner.
+
+If multiple players remain tied, continue to Step 3.
+
+Step 3 — Double Domino (Balak)
+
+Evaluate only the players who remain tied after Step 2.
+
+If no tied player holds a double domino, skip Step 3 entirely and continue to Step 4 using all remaining tied players.
+
+If exactly one tied player holds no double domino (is "clean"), that player wins immediately. This does not proceed to Step 3a, Step 3b, or Step 4.
+
+If two or more tied players are clean (hold no double domino), eliminate every tied player who holds one or more double dominoes, then continue directly to Step 4 using only the clean players. There is nothing left to compare at the balak level among clean players, so Step 3a and Step 3b are skipped in this case.
+
+If every tied player holds at least one double domino (no one is clean), resolve the tie among all of them as follows:
+
+- Step 3a: compare how many double dominoes each of them holds. The player holding the fewest double dominoes wins.
+- Step 3b: if the number of double dominoes held is also tied, compare the pip value of each player's own highest double domino. The player holding the lowest such value wins.
+
+Both Step 3a and Step 3b use the opposite direction from DOM's equivalent sub-steps, because DOM looks for the heaviest balak burden while GUPLAH looks for the lightest one.
+
+Step 4 is never reached when Step 3a or Step 3b resolves the tie.
+
+Step 4 — Highest Remaining Domino, Lowest Value
+
+Evaluate only the players who reach this step.
+
+For each remaining player, identify their own highest-ranked domino using the same pip-sum-based method as DOM Step 4 (pip sum first, then higher single value, then lower single value).
+
+Compare those dominoes across players using the same order, but the player whose highest domino has the LOWEST rank wins — the opposite direction from DOM Step 4.
+
+## Penalty
+
+The winner always receives -5.
+
+The remaining penalty depends on whether the GUPLAH maker is the winner:
+
+- If the GUPLAH maker is the winner: every other player receives +5 each.
+- If the GUPLAH maker is not the winner: only the GUPLAH maker receives +5. Every other player who is neither the winner nor the GUPLAH maker receives 0 and is not penalized at all.
+
+This reflects the local Kalimantan rule that GUPLAH penalizes the act of causing the block specifically, not simply "everyone who did not win," except in the case where the maker of the block also happens to hold the smallest pip total.
+
+## Relationship to SpecialResult
+
+`FinishType.GUPLAH` and `SpecialResult` answer two different questions and are always both present together when GUPLAH occurs:
+
+- `FinishType.GUPLAH` answers "how did the game end" — it is a finish strategy, equal in standing to DOM and PASAR.
+- `SpecialResult` answers "did the GUPLAH maker succeed" — it does not replace or compete with `FinishType.GUPLAH`.
+
+Specifically:
+
+- If the GUPLAH maker is the winner: `special_result = SpecialResult.GUPLAH`.
+- If the GUPLAH maker is not the winner: `special_result = SpecialResult.FAILED_GUPLAH`.
+
+For every other finish type (DOM, PASAR, NORMAL), `special_result` remains `SpecialResult.NONE` until RATUS and RIBU are specified.
 
 ---
 

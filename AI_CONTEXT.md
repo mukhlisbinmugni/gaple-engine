@@ -1,6 +1,6 @@
 # AI_CONTEXT.md
 
-Version: 4.4
+Version: 4.6
 
 ---
 
@@ -179,21 +179,35 @@ outcome is rewarded with a larger swing.
 
 # GUPLAH Design Decision
 
-GUPLAH occurs when gameplay becomes blocked.
+GUPLAH occurs when gameplay becomes blocked (a full round where every player PASSes).
 
 The player causing the block is not automatically the winner.
 
+The GUPLAH maker is the player who last successfully played a domino before the run of PASSes. Game records this fact directly (who played the last move), the same way it records the last move itself for PASAR detection.
+
 Winner:
 
-The player with the smallest remaining pip total. This winner rule is already defined in MASTER_CORE.md and is not pending specification.
+1. Smallest remaining pip total. If unique, done.
+2. If tied, check whether the GUPLAH maker is one of the tied players. If so, the GUPLAH maker wins immediately — do not evaluate any further step.
+3. If the GUPLAH maker is not among the tied players, resolve the tie using the same four-step sequence as DOM (fewest dominoes, balak, highest domino), but with every direction reversed: fewest dominoes wins, no balak is preferred over holding balak, fewest/lowest-valued balak wins, and the lowest-ranked highest domino wins.
+
+Do not reuse `find_dom_loser` for GUPLAH winner detection — the candidate set is different (no player is excluded, since nobody emptied their hand) and the GUPLAH-maker override has no DOM equivalent. Use `find_guplah_winner` instead. The underlying comparison primitives (`domino_rank`, `highest_domino`, `_balak_dominoes`, `_highest_balak_value`) are shared with DOM and should not be duplicated.
 
 Penalty:
 
-Penalty determination follows the GUPLAH rulebook.
+The winner always receives -5.
 
-The GUPLAH penalty rulebook has not yet been formally specified. Do not assume single-recipient or multi-recipient penalty behavior for GUPLAH.
+- If the GUPLAH maker is the winner: every other player receives +5.
+- If the GUPLAH maker is not the winner: only the GUPLAH maker receives +5; everyone else receives 0.
 
-Do not reuse the DOM tie-break sequence (pip total, domino count, balak, highest domino) for GUPLAH. GUPLAH ranks players by the smallest pip total rather than the largest, so its tie-break logic must be designed independently and cannot be assumed to mirror DOM.
+Do not assume "everyone who is not the winner gets +5" unconditionally — that only holds when the GUPLAH maker and the winner are the same player.
+
+`FinishType.GUPLAH` was added to the `FinishType` enum in `game_end_result.py` (previously it only had NORMAL, DOM, PASAR). Do not confuse this with `SpecialResult.GUPLAH` / `SpecialResult.FAILED_GUPLAH`, which already existed in `SpecialResult` before `FinishType.GUPLAH` was added. Both are set together whenever a GUPLAH occurs:
+
+- `finish_type = FinishType.GUPLAH` always, regardless of outcome.
+- `special_result = SpecialResult.GUPLAH` if the GUPLAH maker is the winner, otherwise `special_result = SpecialResult.FAILED_GUPLAH`.
+
+`detect_special_result` takes `finish_type` and `winner` as parameters for this reason — it needs both to decide between GUPLAH and FAILED_GUPLAH.
 
 ---
 

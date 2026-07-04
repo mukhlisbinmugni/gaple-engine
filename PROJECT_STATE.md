@@ -1,6 +1,6 @@
 # PROJECT_STATE.md
 
-Version: 4.6
+Version: 4.8
 
 Status: Active
 
@@ -126,7 +126,7 @@ Rule Engine
 
 Status:
 
-≈ 80% Complete
+≈ 90% Complete
 
 Completed:
 
@@ -139,11 +139,23 @@ Completed:
   state before the final move)
 - ✓ PASAR scoring (-4 winner / +4 penalty recipient, reusing the
   exact same tie-break sequence as DOM)
+- ✓ GUPLAH detection (blocked game, using game.game_over as the
+  underlying fact)
+- ✓ GUPLAH maker identity (game.last_move_player, a new fact
+  recorded by Game)
+- ✓ GUPLAH winner (smallest pip, GUPLAH-maker override, then
+  Step 2/3/3a/3b/4 with every direction reversed from DOM)
+- ✓ GUPLAH scoring (-5 winner; +5 to everyone else if the maker
+  is the winner, otherwise +5 to only the maker and 0 to everyone
+  else)
+- ✓ FinishType.GUPLAH added to game_end_result.py, alongside
+  NORMAL/DOM/PASAR
+- ✓ SpecialResult.GUPLAH / SpecialResult.FAILED_GUPLAH wired up:
+  set together with FinishType.GUPLAH, marking whether the GUPLAH
+  maker won or lost
 
 In Progress / Not Started:
 
-- GUPLAH detection
-- GUPLAH penalty
 - RATUS
 - RIBU
 - Special Result evaluation
@@ -190,13 +202,10 @@ These are not bugs and not pending implementation work. They are
 local rules that have not yet been decided by the project owner.
 Implementations must not guess at answers to these questions.
 
-- GUPLAH penalty: the winner rule is already defined (smallest
-  remaining pip total), but the penalty rulebook is not yet
-  specified, and must not be assumed to reuse DOM's tie-break
-  sequence.
-- Special Result interaction: how SpecialResult should interact
-  with finish_type and penalty_changes once GUPLAH, RATUS, and RIBU
-  exist alongside DOM and PASAR.
+- Special Result interaction for RATUS and RIBU: how SpecialResult
+  should interact with finish_type and penalty_changes once RATUS
+  and RIBU exist. (GUPLAH's interaction is already resolved: see
+  the GUPLAH Philosophy section in MASTER_CORE.md.)
 
 ---
 
@@ -263,18 +272,91 @@ DOM rather than duplicating the tie-break logic, so any future fix
 to the tie-break sequence automatically applies to both finish
 strategies.
 
----
+## GUPLAH design and implementation (follow-up session)
 
-# Immediate Next Tasks
+GUPLAH required the most extensive back-and-forth of any finish
+strategy so far, because the local rule has two layers that are
+easy to conflate: the pip-based winner rule (already partially
+known from earlier sessions) and the identity of the "GUPLAH
+maker" (the player who last successfully played before the block),
+which turned out to override the pip-based tie-break entirely when
+the maker is one of the tied candidates.
 
-1. Design and implement GUPLAH detection (blocked game).
-2. Design and implement the GUPLAH penalty rulebook.
-3. Implement RATUS.
-4. Implement RIBU.
-5. Complete Special Result evaluation.
-6. Guard RuleSystem.evaluate against being called on an unfinished
+Key decisions confirmed through concrete examples:
+
+- GUPLAH winner Step 2 through Step 4 mirror DOM's tie-break
+  sequence structurally, but every comparison direction is
+  reversed (fewest dominoes, absence of balak, fewest/lowest-valued
+  balak, and lowest-ranked highest domino all favor the winner
+  here, since GUPLAH looks for the lightest burden instead of the
+  heaviest one).
+- The GUPLAH-maker override sits between Step 1 and Step 2: if the
+  maker is among the players tied for smallest pip, the maker wins
+  immediately regardless of what Step 2 onward would have produced.
+  If the maker already lost at Step 1, the override never applies
+  and Step 2 onward runs exactly as if the maker did not exist.
+- GUPLAH penalty has two distinct modes depending on whether the
+  maker is the winner. An earlier draft of this rule (recorded in
+  AI_CONTEXT.md v4.2, since corrected) assumed "everyone who is not
+  the winner gets penalized," which is only true in the mode where
+  the maker and the winner are the same player.
+
+Implementation notes:
+
+- `find_guplah_winner` is a separate function from `find_dom_loser`
+  (not a reuse), because the candidate set and override logic are
+  fundamentally different: GUPLAH considers all players (nobody
+  emptied their hand), while DOM excludes the winner from
+  consideration.
+- The underlying comparison primitives (`domino_rank`,
+  `highest_domino`, `_balak_dominoes`, `_highest_balak_value`) are
+  shared with DOM rather than duplicated.
+- `Game` gained one more recorded fact: `last_move_player`, the
+  identity of whoever played `last_move`. This follows the same
+  minimal, facts-only pattern established for PASAR's
+  `previous_left_end` / `previous_right_end`.
+
+## GUPLAH FinishType missing from game_end_result.py (follow-up session)
+
+The initial GUPLAH implementation referenced `FinishType.GUPLAH`
+without first reading `game_end_result.py`, which had never been
+shared in the session up to that point. `FinishType` only defined
+NORMAL, DOM, and PASAR; GUPLAH (along with RATUS, RIBU, and their
+FAILED_* variants) already existed, but inside `SpecialResult`
+instead, left over from an earlier architecture decision recorded
+in PROJECT_STATE.md ("the engine should instead model five
+independent winning strategies") that was never fully carried
+through to `game_end_result.py`.
+
+This was caught immediately by a full pytest run (13 failures, all
+`AttributeError: type object 'FinishType' has no attribute
+'GUPLAH'`) rather than silently producing wrong behavior, because
+the attribute access fails loudly. The fix was to add
+`FinishType.GUPLAH` alongside NORMAL/DOM/PASAR, and to clarify that
+`SpecialResult.GUPLAH` / `SpecialResult.FAILED_GUPLAH` serve a
+different purpose: they mark whether the GUPLAH maker succeeded,
+and are set together with `FinishType.GUPLAH`, not instead of it.
+
+Lesson recorded here deliberately: do not reference an enum member
+or field on a class that has not been shown in the current session,
+even when its name seems obvious from context. Ask to see the file
+first.
+
+## RuleSystem.detect_special_result signature change (follow-up session)
+
+`detect_special_result(game)` became `detect_special_result(game,
+finish_type, winner)`, because deciding between
+`SpecialResult.GUPLAH` and `SpecialResult.FAILED_GUPLAH` requires
+knowing both the finish type and who the winner is. No test called
+`detect_special_result` directly before this change, so nothing
+outside `evaluate()` needed updating.
+
+1. Implement RATUS.
+2. Implement RIBU.
+3. Complete Special Result evaluation.
+4. Guard RuleSystem.evaluate against being called on an unfinished
    game (currently falls through to FinishType.NORMAL silently).
-7. Begin Match Engine.
+5. Begin Match Engine.
 
 ---
 
@@ -294,7 +376,13 @@ Current foundation tests:
 
 Current RuleSystem tests:
 
-✅ Passing (20/20)
+✅ 35 tests written. 21/34 passed on the first real pytest run;
+the 13 failures were all `AttributeError: FinishType has no
+attribute 'GUPLAH'` (see Regression History), not logic errors —
+every test that called `find_guplah_winner` / `calculate_guplah_score`
+directly passed on the first try. Fixed by adding `FinishType.GUPLAH`
+to `game_end_result.py` and wiring up `SpecialResult.GUPLAH` /
+`FAILED_GUPLAH`. Not yet re-run by the project owner after this fix.
 
 ---
 
