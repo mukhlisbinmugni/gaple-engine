@@ -1,5 +1,6 @@
 from domino import Domino
-from move import Side, Move
+from move import Move
+from side import Side
 from placed_domino import PlacedDomino
 
 
@@ -45,20 +46,34 @@ class Table:
 
     def play(self, move: Move):
         """
-        Menjalankan satu langkah permainan Gaple.
+        Menjalankan satu Move, yang dapat terdiri dari satu atau
+        lebih Placement (mis. RATUS = 2 placement dalam 1 Move).
+
+        Setiap placement diterapkan SATU PER SATU, secara berurutan,
+        karena legalitas placement berikutnya bisa bergantung pada
+        state meja hasil placement sebelumnya dalam Move yang sama
+        (bukan divalidasi sekaligus di awal).
         """
 
-        domino = move.dominoes[0]
-
-        # 1. validasi
-        if not self.can_play(domino, move.side):
-            raise ValueError(f"Move tidak valid: {domino} ke {move.side}")
-
-        # Catat ujung meja sebelum move ini diterapkan.
+        # Catat ujung meja sebelum SELURUH move ini diterapkan.
         self.previous_left_end = self.left_end
         self.previous_right_end = self.right_end
 
-        # 2. meja kosong
+        for placement in move.placements:
+            self._apply_placement(placement.domino, placement.side)
+
+    def _apply_placement(self, domino: Domino, side: Side):
+        """
+        Menerapkan SATU placement (satu domino, satu sisi) ke meja.
+        Ini adalah logika yang sebelumnya berada langsung di play(),
+        sekarang diekstrak agar bisa dipanggil berulang untuk Move
+        yang berisi lebih dari satu placement.
+        """
+
+        if not self.can_play(domino, side):
+            raise ValueError(f"Move tidak valid: {domino} ke {side}")
+
+        # meja kosong
         if self.is_empty():
             self.chain.append(
                 PlacedDomino(domino, domino.left, domino.right)
@@ -67,8 +82,8 @@ class Table:
             self.right_end = domino.right
             return
 
-        # 3. LEFT
-        if move.side == Side.LEFT:
+        # LEFT
+        if side == Side.LEFT:
             if domino.right == self.left_end:
                 outward = domino.left
                 inward = domino.right
@@ -79,8 +94,8 @@ class Table:
             self.chain.insert(0, PlacedDomino(domino, outward, inward))
             self.left_end = outward
 
-        # 4. RIGHT
-        elif move.side == Side.RIGHT:
+        # RIGHT
+        elif side == Side.RIGHT:
             if domino.left == self.right_end:
                 outward = domino.right
                 inward = domino.left

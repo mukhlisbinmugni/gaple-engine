@@ -139,7 +139,8 @@ class Game:
 
         self.table.play(move)
 
-        player.play(move.dominoes[0])
+        for placement in move.placements:
+            player.play(placement.domino)
 
         # Catat move ini sebagai move terakhir yang dimainkan,
         # dan siapa yang memainkannya.

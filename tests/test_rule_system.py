@@ -1,5 +1,8 @@
 from game import Game
 from domino import Domino
+from move import Move
+from placement import Placement
+from side import Side
 from rule_system import RuleSystem
 from game_end_result import FinishType, SpecialResult
 
@@ -103,9 +106,9 @@ def test_rule_system_pasar_when_final_domino_fits_both_ends():
     winning_domino = Domino(5, 3)
 
     game.players[0].hand = []
-    game.last_move = type(
-        "FakeMove", (), {"dominoes": [winning_domino]}
-    )()
+    game.last_move = Move(
+        placements=[Placement(winning_domino, Side.LEFT)]
+    )
 
     game.table.previous_left_end = 3
     game.table.previous_right_end = 5
@@ -128,9 +131,9 @@ def test_rule_system_dom_when_final_domino_fits_only_one_end():
     winning_domino = Domino(5, 2)
 
     game.players[0].hand = []
-    game.last_move = type(
-        "FakeMove", (), {"dominoes": [winning_domino]}
-    )()
+    game.last_move = Move(
+        placements=[Placement(winning_domino, Side.LEFT)]
+    )
 
     game.table.previous_left_end = 3
     game.table.previous_right_end = 5
@@ -161,9 +164,9 @@ def test_rule_system_dom_when_table_was_empty_before_last_move():
     winning_domino = Domino(6, 6)
 
     game.players[0].hand = []
-    game.last_move = type(
-        "FakeMove", (), {"dominoes": [winning_domino]}
-    )()
+    game.last_move = Move(
+        placements=[Placement(winning_domino, Side.LEFT)]
+    )
 
     # Meja masih kosong sebelum move terakhir (move pembuka).
     game.table.previous_left_end = None
@@ -461,9 +464,9 @@ def test_rule_system_pasar_evaluate_end_to_end():
     winning_domino = Domino(5, 3)
 
     game.players[0].hand = []
-    game.last_move = type(
-        "FakeMove", (), {"dominoes": [winning_domino]}
-    )()
+    game.last_move = Move(
+        placements=[Placement(winning_domino, Side.LEFT)]
+    )
 
     game.table.previous_left_end = 3
     game.table.previous_right_end = 5

@@ -1,15 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from domino import Domino
-
-
-class Side(Enum):
-    """
-    Sisi meja tempat kartu dimainkan.
-    """
-    LEFT = auto()
-    RIGHT = auto()
+from placement import Placement
 
 
 class MoveType(Enum):
@@ -26,23 +18,20 @@ class Move:
     """
     Merepresentasikan satu aksi yang dilakukan pemain.
 
-    dominoes  : daftar kartu yang dimainkan
-                - NORMAL -> 1 kartu
-                - RATUS  -> 2 kartu
-                - RIBU   -> 3 kartu
+    placements : daftar Placement yang dilakukan dalam satu Move
+                 - NORMAL -> 1 placement
+                 - RATUS  -> 2 placement
+                 - RIBU   -> 3 placement
 
-    side      : sisi meja tempat aksi dilakukan
-
-    move_type : jenis langkah
+    move_type  : jenis langkah
     """
 
-    dominoes: list[Domino]
-    side: Side
+    placements: list[Placement]
     move_type: MoveType = MoveType.NORMAL
 
     def __post_init__(self):
         """
-        Memastikan jumlah kartu sesuai dengan jenis Move.
+        Memastikan jumlah placement sesuai dengan jenis Move.
         """
 
         expected = {
@@ -53,11 +42,12 @@ class Move:
 
         required = expected[self.move_type]
 
-        if len(self.dominoes) != required:
+        if len(self.placements) != required:
             raise ValueError(
-                f"{self.move_type.name} requires exactly {required} domino(es)."
+                f"{self.move_type.name} requires exactly "
+                f"{required} placement(s)."
             )
 
     def __str__(self):
-        cards = ", ".join(str(domino) for domino in self.dominoes)
-        return f"{self.move_type.name}: [{cards}] -> {self.side.name}"
+        placements_str = ", ".join(str(p) for p in self.placements)
+        return f"{self.move_type.name}: {placements_str}"

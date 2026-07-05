@@ -1,5 +1,7 @@
 from domino import Domino
-from move import Move, Side
+from move import Move
+from placement import Placement
+from side import Side
 from move_generator import MoveGenerator
 from table import Table
 
@@ -18,18 +20,15 @@ def test_empty_table_generates_one_move_per_domino():
     assert len(moves) == 3
 
     assert moves[0] == Move(
-        dominoes=[Domino(6, 6)],
-        side=Side.LEFT
+        placements=[Placement(Domino(6, 6), Side.LEFT)]
     )
 
     assert moves[1] == Move(
-        dominoes=[Domino(4, 2)],
-        side=Side.LEFT
+        placements=[Placement(Domino(4, 2), Side.LEFT)]
     )
 
     assert moves[2] == Move(
-        dominoes=[Domino(1, 0)],
-        side=Side.LEFT
+        placements=[Placement(Domino(1, 0), Side.LEFT)]
     )
 
 
@@ -38,15 +37,13 @@ def test_generate_left_moves():
 
     table.play(
         Move(
-            dominoes=[Domino(6, 6)],
-            side=Side.LEFT
+            placements=[Placement(Domino(6, 6), Side.LEFT)]
         )
     )
 
     table.play(
         Move(
-            dominoes=[Domino(6, 3)],
-            side=Side.RIGHT
+            placements=[Placement(Domino(6, 3), Side.RIGHT)]
         )
     )
 
@@ -61,13 +58,11 @@ def test_generate_left_moves():
     assert len(moves) == 2
 
     assert moves[0] == Move(
-        dominoes=[Domino(6, 4)],
-        side=Side.LEFT
+        placements=[Placement(Domino(6, 4), Side.LEFT)]
     )
 
     assert moves[1] == Move(
-        dominoes=[Domino(6, 1)],
-        side=Side.LEFT
+        placements=[Placement(Domino(6, 1), Side.LEFT)]
     )
 
 
@@ -76,15 +71,13 @@ def test_generate_move_on_both_sides():
 
     table.play(
         Move(
-            dominoes=[Domino(6, 6)],
-            side=Side.LEFT
+            placements=[Placement(Domino(6, 6), Side.LEFT)]
         )
     )
 
     table.play(
         Move(
-            dominoes=[Domino(6, 3)],
-            side=Side.RIGHT
+            placements=[Placement(Domino(6, 3), Side.RIGHT)]
         )
     )
 
@@ -97,13 +90,11 @@ def test_generate_move_on_both_sides():
     assert len(moves) == 2
 
     assert moves[0] == Move(
-        dominoes=[Domino(3, 6)],
-        side=Side.LEFT
+        placements=[Placement(Domino(3, 6), Side.LEFT)]
     )
 
     assert moves[1] == Move(
-        dominoes=[Domino(3, 6)],
-        side=Side.RIGHT
+        placements=[Placement(Domino(3, 6), Side.RIGHT)]
     )
 
 
@@ -112,15 +103,13 @@ def test_generate_no_moves():
 
     table.play(
         Move(
-            dominoes=[Domino(6, 6)],
-            side=Side.LEFT
+            placements=[Placement(Domino(6, 6), Side.LEFT)]
         )
     )
 
     table.play(
         Move(
-            dominoes=[Domino(6, 3)],
-            side=Side.RIGHT
+            placements=[Placement(Domino(6, 3), Side.RIGHT)]
         )
     )
 
@@ -147,4 +136,4 @@ def test_all_generated_moves_are_normal():
     assert len(moves) == 2
 
     for move in moves:
-        assert len(move.dominoes) == 1
+        assert len(move.placements) == 1

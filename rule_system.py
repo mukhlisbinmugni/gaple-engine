@@ -111,6 +111,10 @@ class RuleSystem:
         move terakhir adalah move pembuka), PASAR tidak
         didefinisikan untuk kondisi ini, sehingga dianggap
         bukan PASAR.
+
+        PASAR hanya berlaku untuk move satu-placement (NORMAL).
+        Move dengan lebih dari satu placement (mis. RATUS) bukan
+        PASAR, terlepas dari kondisi meja sebelumnya.
         """
 
         move = game.last_move
@@ -118,12 +122,15 @@ class RuleSystem:
         if move is None:
             return False
 
+        if len(move.placements) != 1:
+            return False
+
         table = game.table
 
         if table.previous_left_end is None or table.previous_right_end is None:
             return False
 
-        domino = move.dominoes[0]
+        domino = move.placements[0].domino
 
         return (
             domino.can_connect(table.previous_left_end)

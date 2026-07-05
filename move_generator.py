@@ -1,4 +1,6 @@
-from move import Move, Side
+from move import Move
+from placement import Placement
+from side import Side
 from domino import Domino
 from table import Table
 
@@ -19,8 +21,7 @@ class MoveGenerator:
             if table.is_empty():
                 moves.append(
                     Move(
-                        dominoes=[domino],
-                        side=Side.LEFT
+                        placements=[Placement(domino, Side.LEFT)]
                     )
                 )
                 continue
@@ -29,8 +30,7 @@ class MoveGenerator:
             if table.can_play(domino, Side.LEFT):
                 moves.append(
                     Move(
-                        dominoes=[domino],
-                        side=Side.LEFT
+                        placements=[Placement(domino, Side.LEFT)]
                     )
                 )
 
@@ -38,8 +38,7 @@ class MoveGenerator:
             if table.can_play(domino, Side.RIGHT):
                 moves.append(
                     Move(
-                        dominoes=[domino],
-                        side=Side.RIGHT
+                        placements=[Placement(domino, Side.RIGHT)]
                     )
                 )
 

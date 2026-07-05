@@ -1,5 +1,7 @@
 from domino import Domino
-from move import Move, Side
+from move import Move
+from placement import Placement
+from side import Side
 from game import Game
 from turn_result import TurnStatus
 
@@ -52,12 +54,10 @@ def test_choose_move():
 
     moves = [
         Move(
-            dominoes=[Domino(6, 6)],
-            side=Side.LEFT
+            placements=[Placement(Domino(6, 6), Side.LEFT)]
         ),
         Move(
-            dominoes=[Domino(6, 5)],
-            side=Side.RIGHT
+            placements=[Placement(Domino(6, 5), Side.RIGHT)]
         )
     ]
 
@@ -92,15 +92,13 @@ def test_play_turn_pass():
 
     game.table.play(
         Move(
-            dominoes=[Domino(6, 6)],
-            side=Side.LEFT
+            placements=[Placement(Domino(6, 6), Side.LEFT)]
         )
     )
 
     game.table.play(
         Move(
-            dominoes=[Domino(6, 3)],
-            side=Side.RIGHT
+            placements=[Placement(Domino(6, 3), Side.RIGHT)]
         )
     )
 
@@ -134,15 +132,13 @@ def test_pass_increases_pass_count():
 
     game.table.play(
         Move(
-            dominoes=[Domino(6, 6)],
-            side=Side.LEFT
+            placements=[Placement(Domino(6, 6), Side.LEFT)]
         )
     )
 
     game.table.play(
         Move(
-            dominoes=[Domino(6, 3)],
-            side=Side.RIGHT
+            placements=[Placement(Domino(6, 3), Side.RIGHT)]
         )
     )
 
@@ -174,15 +170,13 @@ def test_four_consecutive_passes_end_game():
 
     game.table.play(
         Move(
-            dominoes=[Domino(6, 6)],
-            side=Side.LEFT
+            placements=[Placement(Domino(6, 6), Side.LEFT)]
         )
     )
 
     game.table.play(
         Move(
-            dominoes=[Domino(6, 3)],
-            side=Side.RIGHT
+            placements=[Placement(Domino(6, 3), Side.RIGHT)]
         )
     )
 
@@ -196,3 +190,16 @@ def test_four_consecutive_passes_end_game():
 
     assert game.is_over() is True
     assert game.pass_count == 4
+
+
+def test_last_move_player_recorded_on_play():
+    game = Game()
+
+    game.players[0].hand = [
+        Domino(6, 6)
+    ]
+
+    game.play_turn()
+
+    assert game.last_move_player == game.players[0]
+    assert game.last_move.placements[0].domino == Domino(6, 6)
