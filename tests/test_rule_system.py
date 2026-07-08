@@ -1,6 +1,6 @@
 from game import Game
 from domino import Domino
-from move import Move
+from move import Move, MoveType
 from placement import Placement
 from side import Side
 from rule_system import RuleSystem
@@ -770,3 +770,213 @@ def test_rule_system_guplah_evaluate_end_to_end_maker_wins():
     assert result.penalty_changes[game.players[1]] == 5
     assert result.penalty_changes[game.players[2]] == 5
     assert result.penalty_changes[game.players[3]] == 5
+
+
+# =========================================================
+# RATUS
+# =========================================================
+
+def test_rule_system_ratus_success_end_to_end():
+    game = Game()
+
+    maker = game.players[0]
+    maker.hand = []
+
+    game.last_move_player = maker
+    game.last_move = Move(
+        placements=[
+            Placement(Domino(5, 5), Side.LEFT),
+            Placement(Domino(6, 5), Side.RIGHT),
+        ],
+        move_type=MoveType.RATUS,
+    )
+
+    game.table.left_end = 5
+    game.table.right_end = 5
+
+    # Tidak ada pemain lain yang masih pegang mata 5.
+    game.players[1].hand = [Domino(1, 0)]
+    game.players[2].hand = [Domino(2, 3)]
+    game.players[3].hand = [Domino(4, 4)]
+
+    result = RuleSystem.evaluate(game)
+
+    assert result.finish_type == FinishType.RATUS
+    assert result.special_result == SpecialResult.RATUS
+    assert result.winner == maker
+    assert result.penalty_changes[maker] == -50
+    assert result.penalty_changes[game.players[1]] == 50
+    assert result.penalty_changes[game.players[2]] == 50
+    assert result.penalty_changes[game.players[3]] == 50
+
+
+def test_rule_system_ratus_failed_due_to_wrong_shape():
+    game = Game()
+
+    maker = game.players[0]
+    maker.hand = []
+
+    game.last_move_player = maker
+    game.last_move = Move(
+        placements=[
+            Placement(Domino(5, 5), Side.LEFT),
+            Placement(Domino(6, 5), Side.RIGHT),
+        ],
+        move_type=MoveType.RATUS,
+    )
+
+    # Ujung meja TIDAK sama -> gagal karena bentuk, terlepas dari
+    # apakah kartu sudah habis atau belum.
+    game.table.left_end = 4
+    game.table.right_end = 2
+
+    game.players[1].hand = [Domino(1, 0)]
+    game.players[2].hand = [Domino(2, 3)]
+    game.players[3].hand = [Domino(4, 4)]
+
+    result = RuleSystem.evaluate(game)
+
+    assert result.finish_type == FinishType.RATUS
+    assert result.special_result == SpecialResult.FAILED_RATUS
+    assert result.winner is None
+    assert result.penalty_changes[maker] == 15
+    assert result.penalty_changes[game.players[1]] == 0
+    assert result.penalty_changes[game.players[2]] == 0
+    assert result.penalty_changes[game.players[3]] == 0
+
+
+def test_rule_system_ratus_failed_because_value_not_exhausted():
+    game = Game()
+
+    maker = game.players[0]
+    maker.hand = []
+
+    game.last_move_player = maker
+    game.last_move = Move(
+        placements=[
+            Placement(Domino(5, 5), Side.LEFT),
+            Placement(Domino(6, 5), Side.RIGHT),
+        ],
+        move_type=MoveType.RATUS,
+    )
+
+    # Bentuk benar (kedua ujung sama = 5), TAPI masih ada mata 5
+    # di tangan pemain lain -> gagal.
+    game.table.left_end = 5
+    game.table.right_end = 5
+
+    game.players[1].hand = [Domino(5, 2)]
+    game.players[2].hand = [Domino(2, 3)]
+    game.players[3].hand = [Domino(4, 4)]
+
+    result = RuleSystem.evaluate(game)
+
+    assert result.finish_type == FinishType.RATUS
+    assert result.special_result == SpecialResult.FAILED_RATUS
+    assert result.winner is None
+    assert result.penalty_changes[maker] == 15
+    assert result.penalty_changes[game.players[1]] == 0
+
+
+# =========================================================
+# RIBU
+# =========================================================
+
+def test_rule_system_ribu_success_end_to_end():
+    game = Game()
+
+    maker = game.players[0]
+    maker.hand = []
+
+    game.last_move_player = maker
+    game.last_move = Move(
+        placements=[
+            Placement(Domino(3, 3), Side.LEFT),
+            Placement(Domino(3, 5), Side.LEFT),
+            Placement(Domino(5, 5), Side.LEFT),
+        ],
+        move_type=MoveType.RIBU,
+    )
+
+    game.table.left_end = 5
+    game.table.right_end = 5
+
+    # Tidak ada pemain lain yang masih pegang mata 3 ATAU 5.
+    game.players[1].hand = [Domino(1, 0)]
+    game.players[2].hand = [Domino(2, 4)]
+    game.players[3].hand = [Domino(6, 6)]
+
+    result = RuleSystem.evaluate(game)
+
+    assert result.finish_type == FinishType.RIBU
+    assert result.special_result == SpecialResult.RIBU
+    assert result.winner == maker
+    assert result.penalty_changes[maker] == -50
+    assert result.penalty_changes[game.players[1]] == 20
+    assert result.penalty_changes[game.players[2]] == 20
+    assert result.penalty_changes[game.players[3]] == 20
+
+
+def test_rule_system_ribu_failed_due_to_wrong_shape():
+    game = Game()
+
+    maker = game.players[0]
+    maker.hand = []
+
+    game.last_move_player = maker
+    game.last_move = Move(
+        placements=[
+            Placement(Domino(3, 3), Side.LEFT),
+            Placement(Domino(3, 5), Side.LEFT),
+            Placement(Domino(5, 5), Side.LEFT),
+        ],
+        move_type=MoveType.RIBU,
+    )
+
+    # Ujung meja TIDAK sama -> gagal karena bentuk.
+    game.table.left_end = 5
+    game.table.right_end = 2
+
+    game.players[1].hand = [Domino(1, 0)]
+    game.players[2].hand = [Domino(2, 4)]
+    game.players[3].hand = [Domino(6, 6)]
+
+    result = RuleSystem.evaluate(game)
+
+    assert result.finish_type == FinishType.RIBU
+    assert result.special_result == SpecialResult.FAILED_RIBU
+    assert result.winner is None
+    assert result.penalty_changes[maker] == 25
+    assert result.penalty_changes[game.players[1]] == 0
+
+
+def test_rule_system_ribu_failed_because_value_not_exhausted():
+    game = Game()
+
+    maker = game.players[0]
+    maker.hand = []
+
+    game.last_move_player = maker
+    game.last_move = Move(
+        placements=[
+            Placement(Domino(3, 3), Side.LEFT),
+            Placement(Domino(3, 5), Side.LEFT),
+            Placement(Domino(5, 5), Side.LEFT),
+        ],
+        move_type=MoveType.RIBU,
+    )
+
+    game.table.left_end = 5
+    game.table.right_end = 5
+
+    # Bentuk benar, TAPI masih ada mata 3 di tangan pemain lain.
+    game.players[1].hand = [Domino(3, 0)]
+    game.players[2].hand = [Domino(2, 4)]
+    game.players[3].hand = [Domino(6, 6)]
+
+    result = RuleSystem.evaluate(game)
+
+    assert result.finish_type == FinishType.RIBU
+    assert result.special_result == SpecialResult.FAILED_RIBU
+    assert result.winner is None
+    assert result.penalty_changes[maker] == 25

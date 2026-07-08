@@ -3,6 +3,7 @@ from game_end_result import (
     FinishType,
     SpecialResult,
 )
+from move import MoveType
 
 
 class RuleSystem:
@@ -23,6 +24,14 @@ class RuleSystem:
             winner = RuleSystem.find_guplah_winner(
                 player_points, game.last_move_player
             )
+        elif finish_type == FinishType.RATUS:
+            maker = game.last_move_player
+            success = RuleSystem._is_ratus_success(game, maker)
+            winner = maker if success else None
+        elif finish_type == FinishType.RIBU:
+            maker = game.last_move_player
+            success = RuleSystem._is_ribu_success(game, maker)
+            winner = maker if success else None
         else:
             winner = RuleSystem.detect_winner(game)
 
@@ -60,14 +69,21 @@ class RuleSystem:
     @staticmethod
     def detect_finish_type(game):
         """
-        DOM/PASAR hanya bisa terdeteksi jika ada pemain yang
-        habis kartunya. PASAR adalah bentuk khusus dari DOM:
-        domino terakhir yang dimainkan harus legal di KEDUA
-        ujung meja pada saat SEBELUM domino itu dimainkan.
+        DOM/PASAR/RATUS/RIBU hanya bisa terdeteksi jika ada pemain
+        yang habis kartunya.
 
-        PASAR TIDAK dideteksi dari jumlah PASS berturut-turut.
-        (Lihat AI_CONTEXT.md: "Do not model PASAR as merely
-        four consecutive PASS actions.")
+        Begitu ada pemain kosong tangan, move_type dari last_move
+        DICEK LEBIH DAHULU: jika RATUS atau RIBU, finish_type
+        mengikuti move_type itu (terlepas dari sukses/gagal --
+        sukses/gagal adalah urusan SpecialResult dan penalty,
+        bukan finish_type). Baru jika bukan RATUS/RIBU, lanjut ke
+        pengecekan PASAR/DOM seperti biasa.
+
+        PASAR adalah bentuk khusus dari DOM: domino terakhir yang
+        dimainkan harus legal di KEDUA ujung meja pada saat SEBELUM
+        domino itu dimainkan. PASAR TIDAK dideteksi dari jumlah
+        PASS berturut-turut. (Lihat AI_CONTEXT.md: "Do not model
+        PASAR as merely four consecutive PASS actions.")
 
         GUPLAH terjadi ketika tidak ada pemain yang habis
         kartunya, tetapi permainan sudah berhenti (game.game_over
@@ -83,8 +99,19 @@ class RuleSystem:
 
         for player in game.players:
             if player.is_empty():
+                move_type = (
+                    game.last_move.move_type if game.last_move else None
+                )
+
+                if move_type == MoveType.RATUS:
+                    return FinishType.RATUS
+
+                if move_type == MoveType.RIBU:
+                    return FinishType.RIBU
+
                 if RuleSystem._is_pasar(game):
                     return FinishType.PASAR
+
                 return FinishType.DOM
 
         if game.game_over:
@@ -143,23 +170,37 @@ class RuleSystem:
     @staticmethod
     def detect_special_result(game, finish_type, winner):
         """
-        Untuk finish_type selain GUPLAH, belum ada special result
-        yang didefinisikan (RATUS/RIBU reserved untuk masa depan).
+        Untuk DOM, PASAR, dan NORMAL, belum ada special result
+        yang didefinisikan.
 
-        Untuk GUPLAH, special result menandai hasil dari upaya
-        pembuat guplah, terpisah dari finish_type itu sendiri:
-        - SpecialResult.GUPLAH: pembuat guplah adalah winner.
-        - SpecialResult.FAILED_GUPLAH: pembuat guplah BUKAN
-          winner (pip-nya kalah dari pemain lain).
+        Untuk GUPLAH, RATUS, dan RIBU, special result menandai
+        hasil dari upaya pemain yang memicunya (pembuat guplah /
+        pembuat RATUS / pembuat RIBU), terpisah dari finish_type
+        itu sendiri:
+        - GUPLAH: SUCCESS jika pembuat guplah adalah winner,
+          FAILED jika bukan.
+        - RATUS/RIBU: SUCCESS jika winner bukan None (winner
+          selalu sang maker jika sukses, karena hanya makerlah
+          yang bisa jadi kandidat winner untuk RATUS/RIBU),
+          FAILED jika winner adalah None.
         """
 
-        if finish_type != FinishType.GUPLAH:
-            return SpecialResult.NONE
+        if finish_type == FinishType.GUPLAH:
+            if game.last_move_player == winner:
+                return SpecialResult.GUPLAH
+            return SpecialResult.FAILED_GUPLAH
 
-        if game.last_move_player == winner:
-            return SpecialResult.GUPLAH
+        if finish_type == FinishType.RATUS:
+            if winner is not None:
+                return SpecialResult.RATUS
+            return SpecialResult.FAILED_RATUS
 
-        return SpecialResult.FAILED_GUPLAH
+        if finish_type == FinishType.RIBU:
+            if winner is not None:
+                return SpecialResult.RIBU
+            return SpecialResult.FAILED_RIBU
+
+        return SpecialResult.NONE
 
     # =========================================================
     # PENALTY SYSTEM
@@ -177,6 +218,16 @@ class RuleSystem:
         if finish_type == FinishType.GUPLAH:
             return RuleSystem.calculate_guplah_score(
                 player_points, winner, game.last_move_player
+            )
+
+        if finish_type == FinishType.RATUS:
+            return RuleSystem.calculate_ratus_score(
+                player_points, game.last_move_player, success=(winner is not None)
+            )
+
+        if finish_type == FinishType.RIBU:
+            return RuleSystem.calculate_ribu_score(
+                player_points, game.last_move_player, success=(winner is not None)
             )
 
         return {}
@@ -563,5 +614,132 @@ class RuleSystem:
                     scores[p] = 5
         else:
             scores[guplah_maker] = 5
+
+        return scores
+
+    # =========================================================
+    # RATUS / RIBU SHARED HELPERS
+    # =========================================================
+    @staticmethod
+    def _ends_are_equal(game):
+        """
+        Syarat bentuk yang sama untuk RATUS maupun RIBU: setelah
+        move dimainkan, KEDUA ujung meja harus bernilai sama.
+        Jika tidak, move tersebut gagal murni karena bentuknya
+        salah -- terlepas dari apakah kartu bermata itu sudah
+        habis atau belum.
+        """
+        return game.table.left_end == game.table.right_end
+
+    @staticmethod
+    def _value_exhausted(game, value, maker):
+        """
+        Mengecek apakah SEMUA domino bermata `value` sudah tidak
+        ada lagi di tangan pemain MANAPUN selain `maker` (yang
+        tangannya sudah pasti kosong karena baru saja menghabiskan
+        kartu). Domino yang sudah berada di meja otomatis tidak
+        terhitung, karena tidak lagi ada di tangan siapa pun.
+        """
+        for player in game.players:
+            if player == maker:
+                continue
+            for domino in player.hand:
+                if domino.left == value or domino.right == value:
+                    return False
+        return True
+
+    @staticmethod
+    def _is_ratus_success(game, maker):
+        """
+        RATUS sukses jika:
+        1. Kedua ujung meja sama setelah move (bentuk benar).
+        2. Seluruh domino bermata nilai itu sudah habis dari
+           tangan pemain lain.
+        """
+        if not RuleSystem._ends_are_equal(game):
+            return False
+
+        value = game.table.left_end
+        return RuleSystem._value_exhausted(game, value, maker)
+
+    @staticmethod
+    def _ribu_balak_values(move):
+        """
+        Mengambil kedua nilai balak yang dipakai dalam satu move
+        RIBU, berdasarkan placement yang benar-benar dimainkan
+        (bukan menebak dari tangan, karena tangan sudah kosong
+        setelah move ini).
+        """
+        values = []
+        for placement in move.placements:
+            domino = placement.domino
+            if domino.left == domino.right:
+                values.append(domino.left)
+        return values
+
+    @staticmethod
+    def _is_ribu_success(game, maker):
+        """
+        RIBU sukses jika:
+        1. Kedua ujung meja sama setelah move (bentuk benar).
+        2. KEDUA nilai balak yang dipakai (bukan hanya nilai
+           ujung penutup) sudah habis dari tangan pemain lain.
+        """
+        if not RuleSystem._ends_are_equal(game):
+            return False
+
+        values = RuleSystem._ribu_balak_values(game.last_move)
+
+        if len(values) != 2:
+            # Defensif: seharusnya tidak pernah terjadi selama
+            # MoveGenerator hanya menghasilkan RIBU dengan bentuk
+            # tangan yang benar (2 balak + 1 penghubung).
+            return False
+
+        return all(
+            RuleSystem._value_exhausted(game, value, maker)
+            for value in values
+        )
+
+    # =========================================================
+    # RATUS SCORE
+    #
+    # Sukses: maker -50, SEMUA pemain lain +50 masing-masing.
+    # Gagal: maker +15, pemain lain tidak dihukum (0). Ini
+    # berlaku baik untuk kegagalan karena bentuk salah (ujung
+    # tidak sama) maupun bentuk benar tapi kartu belum habis --
+    # keduanya sama-sama +15, tidak dibedakan.
+    # =========================================================
+    @staticmethod
+    def calculate_ratus_score(player_points, maker, success):
+        scores = {p: 0 for p in player_points}
+
+        if success:
+            scores[maker] = -50
+            for p in player_points:
+                if p != maker:
+                    scores[p] = 50
+        else:
+            scores[maker] = 15
+
+        return scores
+
+    # =========================================================
+    # RIBU SCORE
+    #
+    # Sukses: maker -50, SEMUA pemain lain +20 masing-masing.
+    # Gagal: maker +25, pemain lain tidak dihukum (0).
+    # =========================================================
+    @staticmethod
+    def calculate_ribu_score(player_points, maker, success):
+        scores = {p: 0 for p in player_points}
+
+        if success:
+            scores[maker] = -50
+            for p in player_points:
+                if p != maker:
+                    scores[p] = 20
+        else:
+            scores[maker] = 25
 
         return scores

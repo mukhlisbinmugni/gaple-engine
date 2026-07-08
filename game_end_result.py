@@ -13,6 +13,8 @@ class FinishType(Enum):
     DOM = auto()
     PASAR = auto()
     GUPLAH = auto()
+    RATUS = auto()
+    RIBU = auto()
 
 
 class SpecialResult(Enum):

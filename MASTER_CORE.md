@@ -1,6 +1,6 @@
 # MASTER_CORE.md
 
-Version: 4.6
+Version: 4.7
 
 Status: Active
 
@@ -149,9 +149,13 @@ Move represents only a physical move.
 
 Move stores:
 
-- domino sequence
-- played side
+- a list of Placements (one Placement per domino actually placed
+  within this Move)
 - move type
+
+Each Placement stores exactly one domino and the side it was aimed
+at. A Move with one Placement is NORMAL. A Move with two Placements
+is RATUS. A Move with three Placements is RIBU.
 
 Move never determines:
 
@@ -160,6 +164,11 @@ Move never determines:
 - GUPLAH
 - RATUS
 - RIBU
+
+Move is atomic: Table applies every Placement within a Move in
+order, but if any single Placement fails, the entire Move is rolled
+back as if it never happened. A Move can never leave the table in a
+partially-applied state.
 
 ---
 
@@ -468,27 +477,140 @@ Specifically:
 - If the GUPLAH maker is the winner: `special_result = SpecialResult.GUPLAH`.
 - If the GUPLAH maker is not the winner: `special_result = SpecialResult.FAILED_GUPLAH`.
 
-For every other finish type (DOM, PASAR, NORMAL), `special_result` remains `SpecialResult.NONE` until RATUS and RIBU are specified.
+For every other finish type (NORMAL), `special_result` remains `SpecialResult.NONE`.
 
 ---
 
 # RATUS Philosophy
 
-Reserved for future implementation.
+RATUS is an optional strategic move, not an automatic outcome and
+not a required move. A player who satisfies RATUS's conditions is
+never obligated to play it; they may choose to play NORMAL instead.
 
-This finish strategy has not yet been formally specified.
+## Trigger
 
-Until the specification is completed, implementations must not assume any RATUS behavior.
+RATUS is attempted whenever a player, on their turn, plays their
+last two remaining dominoes together as a single Move (a Move with
+exactly two Placements, `MoveType.RATUS`). This is purely an action:
+holding a qualifying pair of dominoes in hand does NOT constitute
+RATUS by itself. RATUS only exists once the Move has actually been
+played.
+
+MoveGenerator does not require any particular shape for the two
+dominoes (no "must be a double plus a connector" requirement at
+generation time). It only checks that the two dominoes can be
+legally connected to the table in some order and side assignment.
+Whether the attempt succeeds or fails is determined afterward by
+RuleSystem, not by MoveGenerator. MoveGenerator's job is to report
+every legal way the two dominoes could be played, including
+combinations that are legal to place but will not result in success
+— the player (or AI) chooses which one to play, and a wrong choice
+is a real, playable strategic mistake, not something the engine
+prevents.
+
+A Move is atomic: if the first Placement of a RATUS Move succeeds
+but the second fails, the entire Move is illegal and rejected — it
+cannot be attempted at all. There is no partial RATUS.
+
+## Success and Failure
+
+After a RATUS Move is played and the maker's hand is empty, success
+is determined by two conditions, checked in order:
+
+1. **Shape**: after the Move, both ends of the table must be equal
+   to the same value. If the two ends differ, RATUS fails
+   immediately — this is a failure of shape, regardless of what
+   remains in other players' hands.
+2. **Exhaustion**: if the shape is correct, every domino bearing
+   that value must no longer exist in any other player's hand (all
+   7 dominoes of that value must already be accounted for, either on
+   the table or in the maker's now-empty hand).
+
+If both conditions hold, RATUS succeeds. If either fails, RATUS
+fails. The two distinct ways to fail (wrong shape vs. correct shape
+but value not exhausted) are NOT distinguished for penalty purposes
+— both receive the same failure penalty.
+
+Failure ends the game exactly like success does — the maker forced
+their hand empty, so the game cannot continue either way. When
+RATUS fails, there is no winner: `winner` is `None`.
+
+## Penalty
+
+- Success: the maker receives -50. Every other player receives +50
+  each.
+- Failure: the maker receives +15. No other player is penalized.
+
+## Relationship to FinishType and SpecialResult
+
+`finish_type = FinishType.RATUS` whenever the winning Move's
+`move_type` is `MoveType.RATUS`, regardless of success or failure.
+`special_result` then distinguishes the outcome:
+
+- `SpecialResult.RATUS` if the attempt succeeded (winner is the
+  maker).
+- `SpecialResult.FAILED_RATUS` if the attempt failed (winner is
+  `None`).
 
 ---
 
 # RIBU Philosophy
 
-Reserved for future implementation.
+RIBU follows the same "optional strategic Move" philosophy as
+RATUS: it is triggered purely by the action of playing three
+remaining dominoes together as a single Move, never by hand state
+alone, and is never mandatory.
 
-This finish strategy has not yet been formally specified.
+## Trigger and Shape Requirement
 
-Until the specification is completed, implementations must not assume any RIBU behavior.
+Unlike RATUS, RIBU has a mandatory hand-shape requirement enforced
+by MoveGenerator at generation time: the three dominoes must consist
+of exactly two double dominoes of two different values, plus exactly
+one connecting domino whose two sides match those two values. If a
+player's last three dominoes do not have this shape, RIBU is never
+offered as an option by MoveGenerator — the three dominoes may still
+be played individually as three separate NORMAL moves, but not as a
+single RIBU Move.
+
+Within a hand that does have the correct shape, more than one
+physical arrangement of the three dominoes may be legal (for
+example, the three dominoes may close the table on either of the
+two double values, depending on how they are distributed between
+the two ends). MoveGenerator offers every such legal arrangement;
+which one is played is the player's choice.
+
+A Move is atomic, same as RATUS and NORMAL: if any one of the three
+Placements fails, the entire RIBU Move is rejected.
+
+## Success and Failure
+
+After a RIBU Move is played and the maker's hand is empty:
+
+1. **Shape**: both ends of the table must be equal after the Move.
+   If not, RIBU fails immediately (a failure of shape), regardless
+   of hand-shape correctness at generation time — the hand-shape
+   check at generation time does not guarantee a symmetric closing
+   result for every possible table state.
+2. **Exhaustion**: if the shape is correct, BOTH of the two double
+   values used in the Move (not only whichever value the table
+   happened to close on) must be exhausted from every other player's
+   hand.
+
+Both failure modes receive the same failure penalty, exactly as
+with RATUS. When RIBU fails, there is no winner: `winner` is `None`.
+
+## Penalty
+
+- Success: the maker receives -50. Every other player receives +20
+  each.
+- Failure: the maker receives +25. No other player is penalized.
+
+## Relationship to FinishType and SpecialResult
+
+Same pattern as RATUS: `finish_type = FinishType.RIBU` whenever the
+winning Move's `move_type` is `MoveType.RIBU`, regardless of outcome.
+`special_result` is `SpecialResult.RIBU` on success or
+`SpecialResult.FAILED_RIBU` on failure.
 
 ---
 

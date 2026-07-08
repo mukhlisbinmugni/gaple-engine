@@ -160,6 +160,45 @@ def test_multi_placement_move_applied_sequentially():
     assert table.right_end == 4
 
 
+def test_move_is_atomic_rollback_on_partial_failure():
+    """
+    Jika placement pertama berhasil tetapi placement kedua gagal,
+    SELURUH move harus dibatalkan -- meja harus kembali persis
+    seperti sebelum move ini dicoba, tanpa state 'setengah jadi'.
+    """
+    table = Table()
+
+    table.play(
+        Move(
+            placements=[Placement(Domino(4, 4), Side.LEFT)]
+        )
+    )
+
+    # Meja: 4....4
+    chain_length_before = len(table.chain)
+    left_end_before = table.left_end
+    right_end_before = table.right_end
+
+    with pytest.raises(ValueError):
+        table.play(
+            Move(
+                placements=[
+                    # Placement pertama: legal (balak 4-4 cocok ujung 4).
+                    Placement(Domino(4, 4), Side.LEFT),
+                    # Placement kedua: TIDAK legal (1-2 tidak
+                    # menyambung ke ujung 4 manapun).
+                    Placement(Domino(1, 2), Side.LEFT),
+                ],
+                move_type=MoveType.RATUS,
+            )
+        )
+
+    # Meja harus kembali persis seperti sebelum move gagal ini.
+    assert len(table.chain) == chain_length_before
+    assert table.left_end == left_end_before
+    assert table.right_end == right_end_before
+
+
 def test_previous_ends_recorded_before_whole_move():
     table = Table()
 

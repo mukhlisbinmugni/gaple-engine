@@ -47,20 +47,39 @@ class Table:
     def play(self, move: Move):
         """
         Menjalankan satu Move, yang dapat terdiri dari satu atau
-        lebih Placement (mis. RATUS = 2 placement dalam 1 Move).
+        lebih Placement (mis. RATUS = 2 placement, RIBU = 3
+        placement dalam 1 Move).
 
-        Setiap placement diterapkan SATU PER SATU, secara berurutan,
-        karena legalitas placement berikutnya bisa bergantung pada
-        state meja hasil placement sebelumnya dalam Move yang sama
-        (bukan divalidasi sekaligus di awal).
+        Move bersifat ATOMIK: setiap placement diterapkan satu per
+        satu secara berurutan (karena legalitas placement berikutnya
+        bisa bergantung pada state hasil placement sebelumnya dalam
+        Move yang sama), tetapi jika SATU SAJA placement gagal,
+        SELURUH move dibatalkan -- meja dikembalikan persis seperti
+        sebelum Move ini mulai diterapkan. Tidak boleh ada state
+        "setengah jadi" yang tertinggal.
         """
 
-        # Catat ujung meja sebelum SELURUH move ini diterapkan.
-        self.previous_left_end = self.left_end
-        self.previous_right_end = self.right_end
+        chain_snapshot = self.chain.copy()
+        left_end_snapshot = self.left_end
+        right_end_snapshot = self.right_end
 
         for placement in move.placements:
-            self._apply_placement(placement.domino, placement.side)
+            try:
+                self._apply_placement(placement.domino, placement.side)
+            except ValueError:
+                # Rollback penuh: seolah-olah Move ini tidak pernah
+                # terjadi sama sekali.
+                self.chain = chain_snapshot
+                self.left_end = left_end_snapshot
+                self.right_end = right_end_snapshot
+                raise
+
+        # Move berhasil sepenuhnya -- baru sekarang catat ujung
+        # meja SEBELUM move ini sebagai previous_*. Jika move gagal
+        # (branch di atas), previous_* sengaja TIDAK diubah, karena
+        # move yang gagal dianggap tidak pernah terjadi.
+        self.previous_left_end = left_end_snapshot
+        self.previous_right_end = right_end_snapshot
 
     def _apply_placement(self, domino: Domino, side: Side):
         """
@@ -111,3 +130,42 @@ class Table:
             return "(Meja kosong)"
 
         return f"{self.left_end} ...... {self.right_end}"
+
+    @staticmethod
+    def simulate_placement(left_end: int, right_end: int, domino: Domino, side: Side):
+        """
+        Mensimulasikan SATU placement secara murni (tanpa efek
+        samping ke Table manapun), mengembalikan (new_left, new_right)
+        jika legal, atau None jika tidak legal.
+
+        Dipakai oleh MoveGenerator untuk mencoba berbagai kombinasi
+        urutan+sisi untuk RATUS/RIBU tanpa perlu mengubah Table asli
+        atau membuat salinan Table. Logikanya sengaja disalin dari
+        _apply_placement (bagian LEFT/RIGHT saja -- kasus meja kosong
+        tidak relevan di sini karena RATUS/RIBU hanya mungkin terjadi
+        setelah beberapa giliran, sehingga meja tidak pernah kosong).
+        """
+
+        if side == Side.LEFT:
+            if not domino.can_connect(left_end):
+                return None
+
+            if domino.right == left_end:
+                outward = domino.left
+            else:
+                outward = domino.right
+
+            return (outward, right_end)
+
+        if side == Side.RIGHT:
+            if not domino.can_connect(right_end):
+                return None
+
+            if domino.left == right_end:
+                outward = domino.right
+            else:
+                outward = domino.left
+
+            return (left_end, outward)
+
+        return None

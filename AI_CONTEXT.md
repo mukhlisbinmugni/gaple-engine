@@ -1,6 +1,6 @@
 # AI_CONTEXT.md
 
-Version: 4.6
+Version: 4.7
 
 ---
 
@@ -208,6 +208,41 @@ Do not assume "everyone who is not the winner gets +5" unconditionally — that 
 - `special_result = SpecialResult.GUPLAH` if the GUPLAH maker is the winner, otherwise `special_result = SpecialResult.FAILED_GUPLAH`.
 
 `detect_special_result` takes `finish_type` and `winner` as parameters for this reason — it needs both to decide between GUPLAH and FAILED_GUPLAH.
+
+---
+
+# RATUS Design Decision
+
+RATUS is triggered purely by the ACTION of playing the last two remaining dominoes together as one Move (`MoveType.RATUS`, two Placements). Holding a qualifying pair in hand is never RATUS by itself — do not detect RATUS from hand contents alone.
+
+`MoveGenerator._generate_ratus` does not check the shape of the two dominoes at all (no "must be a double plus connector" requirement). It only checks `len(hand) == 2` and that the table is not empty, then tries every order/side combination via `Table.simulate_placement` (a pure, side-effect-free static method — do not use a real `Table` and mutate it during generation). Every legal combination is offered, including combinations that are legal to place but will not close the table symmetrically. Do not filter these out — a wrong choice is a real strategic mistake the player can make, not something MoveGenerator should prevent.
+
+Success/failure is entirely RuleSystem's job, decided only after the Move has actually been played and the maker's hand is empty:
+
+1. Shape check: `game.table.left_end == game.table.right_end`. If not equal, RATUS fails — this is a failure of shape, independent of anything else.
+2. Exhaustion check (only reached if shape passes): every domino bearing that end value must be absent from every other player's hand.
+
+Both failure paths (wrong shape, or correct shape but not exhausted) receive the identical failure penalty — do not distinguish them in scoring.
+
+When RATUS fails, `winner` is `None` — there is no winner at all, unlike GUPLAH (which always has a winner). Do not default `winner` to some other player when RATUS fails.
+
+Penalty: success is -50 for the maker / +50 for every other player. Failure is +15 for the maker / 0 for everyone else.
+
+`Table.play()` must be atomic for RATUS to be safe: if the first Placement succeeds but the second fails, the whole Move is rejected and the table is rolled back to its pre-Move state. This was implemented as part of the Placement migration hardening, before RATUS/RIBU code was written.
+
+---
+
+# RIBU Design Decision
+
+RIBU follows the same "action-triggered, never mandatory" philosophy as RATUS, but — unlike RATUS — it has a mandatory shape requirement checked by `MoveGenerator._generate_ribu` BEFORE any placement search happens: the three remaining dominoes must be exactly two double dominoes of different values plus one connector whose two sides match those two values. If the hand does not have this shape, RIBU is never offered as an option, even if the three dominoes happen to be physically connectable in some other arrangement — do not relax this check to be permissive like RATUS's.
+
+Within a correctly-shaped hand, more than one legal Placement arrangement can exist (the three dominoes may close the table on either of the two double values, depending on how they are split between the two ends — typically a 2-and-1 split either way). `MoveGenerator` must offer every such legal arrangement it finds via `_generate_multi_placement_moves` (the same generic combination search shared with RATUS), not just one canonical one.
+
+Success/failure mirrors RATUS exactly, with one important difference: the exhaustion check must cover BOTH double values used in the Move (read from `game.last_move.placements`, identifying which placements are doubles), not just whichever value the table happened to close on. Getting this wrong (checking only the closing value) would be a bug — both values must be exhausted for success.
+
+When RIBU fails, `winner` is `None`, exactly like RATUS.
+
+Penalty: success is -50 for the maker / +20 for every other player. Failure is +25 for the maker / 0 for everyone else. Note this differs from RATUS's failure penalty (+15) and success reward to others (+50 vs +20) — do not reuse RATUS's numbers for RIBU.
 
 ---
 

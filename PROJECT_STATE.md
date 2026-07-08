@@ -1,6 +1,6 @@
 # PROJECT_STATE.md
 
-Version: 4.8
+Version: 4.9
 
 Status: Active
 
@@ -34,6 +34,14 @@ authority and this list is wrong and must be corrected.
 - MoveGenerator never applies scoring logic.
 - PASAR is detected from table state before the final move, never
   from pass_count.
+- Move stores a list of Placements, not a single domino/side pair.
+  There is no `Move.dominoes` / `Move.side` compatibility alias.
+- MoveGenerator does not require any particular shape for RATUS's
+  two dominoes (shape-agnostic); it DOES require a specific shape
+  for RIBU's three dominoes (two doubles + one matching connector)
+  before offering it as an option.
+- RATUS/RIBU success or failure is decided by RuleSystem after the
+  Move is played, never by MoveGenerator at generation time.
 
 ---
 
@@ -61,6 +69,12 @@ Every change must preserve:
   reconsidered later.
 - Step 3b and Step 4 raise RuntimeError instead of silently
   guessing when a tie is unexpectedly unresolved.
+- A Move is atomic: Table.play() either applies every Placement
+  successfully, or rolls back to the exact pre-Move state and
+  raises. No half-applied Move is ever left on the table.
+- RATUS and RIBU never distinguish "wrong shape" failure from
+  "value not exhausted" failure in penalty terms — both receive
+  the same failure penalty.
 
 ---
 
@@ -126,7 +140,7 @@ Rule Engine
 
 Status:
 
-≈ 90% Complete
+100% Complete
 
 Completed:
 
@@ -153,12 +167,26 @@ Completed:
 - ✓ SpecialResult.GUPLAH / SpecialResult.FAILED_GUPLAH wired up:
   set together with FinishType.GUPLAH, marking whether the GUPLAH
   maker won or lost
+- ✓ Move migrated from a single domino/side model to
+  `placements: list[Placement]`, enabling multi-placement moves
+  (see Regression History for the full migration summary)
+- ✓ Table.play() made atomic: a Move either fully succeeds or is
+  fully rolled back, no partial application
+- ✓ RATUS detection, MoveGenerator generation (shape-agnostic,
+  action-triggered), success/failure evaluation (shape then
+  exhaustion), and scoring (-50/+50 success, +15/0 failure)
+- ✓ RIBU detection, MoveGenerator generation (shape-mandatory: 2
+  doubles + 1 connector, multiple valid distributions offered),
+  success/failure evaluation (shape then dual-value exhaustion),
+  and scoring (-50/+20 success, +25/0 failure)
+- ✓ FinishType.RATUS / FinishType.RIBU added to game_end_result.py
+- ✓ SpecialResult.RATUS / FAILED_RATUS / RIBU / FAILED_RIBU wired
+  up, following the same pattern as GUPLAH
 
 In Progress / Not Started:
 
-- RATUS
-- RIBU
-- Special Result evaluation
+- Special Result evaluation for any finish type beyond GUPLAH,
+  RATUS, and RIBU (none currently known to be needed)
 
 ---
 
@@ -202,10 +230,9 @@ These are not bugs and not pending implementation work. They are
 local rules that have not yet been decided by the project owner.
 Implementations must not guess at answers to these questions.
 
-- Special Result interaction for RATUS and RIBU: how SpecialResult
-  should interact with finish_type and penalty_changes once RATUS
-  and RIBU exist. (GUPLAH's interaction is already resolved: see
-  the GUPLAH Philosophy section in MASTER_CORE.md.)
+None currently open. (RATUS and RIBU's SpecialResult interaction,
+previously listed here, is resolved — see the RATUS/RIBU Philosophy
+sections in MASTER_CORE.md.)
 
 ---
 
@@ -351,12 +378,103 @@ knowing both the finish type and who the winner is. No test called
 `detect_special_result` directly before this change, so nothing
 outside `evaluate()` needed updating.
 
-1. Implement RATUS.
-2. Implement RIBU.
-3. Complete Special Result evaluation.
-4. Guard RuleSystem.evaluate against being called on an unfinished
+## Move/Placement migration and RATUS/RIBU implementation (follow-up session)
+
+This was the largest structural change since the project began. It
+was carried out in four explicit phases, tracked in
+`MOVE_REFACTOR_PLAN.md` (now archived/removed — its purpose was
+temporary, per its own stated policy), specifically to keep pure
+refactoring (no behavior change) separate from RATUS/RIBU feature
+work (new behavior), so that a bug during either phase would be
+unambiguous about its cause.
+
+**Why the migration was needed**: `Move` originally stored a single
+`dominoes: list[Domino]` and one `side: Side` for the entire move.
+RATUS (two dominoes on potentially different sides) and RIBU (three
+dominoes) cannot be represented this way. `Move` was migrated to
+`placements: list[Placement]`, where `Placement` pairs one domino
+with one side. This was a full migration — no `Move.dominoes` /
+`Move.side` compatibility alias was kept, matching the project's
+established preference for a single source of truth over
+convenience aliases (the same reasoning applied when GUPLAH's
+`FinishType` was added directly rather than left split across two
+enums).
+
+**Phase 1** added `Placement` alongside the untouched old `Move`
+model. **Phase 2** migrated `Move`, `Table`, `Game`, `MoveGenerator`,
+and `RuleSystem` to use `placements`, including extracting `Side`
+into its own `side.py` to avoid a circular import between `move.py`
+and `placement.py`. **Phase 3** was a review pass confirming DOM,
+PASAR, and GUPLAH behavior was unchanged. **Phase 4** implemented
+RATUS and RIBU on top of the now-stable `Placement` model.
+
+**Two bugs were found and fixed during Phase 2/3, both self-inflicted
+test-authoring mistakes rather than migration bugs**: a test
+constructing a 2-placement Move without setting `move_type=RATUS`
+(defaulted to NORMAL, correctly rejected by `Move`'s own validation),
+and a `str_replace` edit that accidentally deleted a test function's
+`def` line, silently merging its body into the previous test — caught
+immediately by a syntax check before being handed back.
+
+**`Table.play()` was made atomic** as part of this work: if any
+Placement within a multi-placement Move fails, the entire Move is
+rolled back (chain, left_end, right_end restored to their pre-Move
+values) rather than leaving the table half-mutated. This was
+identified as necessary specifically because RATUS/RIBU introduced
+multi-placement Moves where a mid-move failure became newly possible
+in principle (even though `MoveGenerator` is expected to only offer
+already-legal combinations).
+
+**RATUS and RIBU rule design** took the same "rule via concrete
+examples first" approach used for DOM/PASAR/GUPLAH, and surfaced two
+non-obvious findings before any code was written:
+
+- RATUS is action-triggered (playing 2 remaining dominoes together),
+  never inferred from hand contents, and is optional — a player
+  meeting RATUS's conditions may still choose NORMAL. `MoveGenerator`
+  does not check the shape of the two dominoes at all; it offers
+  every legal combination, including ones that will fail, because a
+  wrong choice is a genuine playable mistake in the local rule, not
+  something the engine should prevent.
+- RIBU, by contrast, DOES require a specific hand shape at generation
+  time (exactly two doubles of different values plus one connector
+  joining them) — `MoveGenerator` will not offer RIBU at all for a
+  hand that doesn't match this shape, even if the three dominoes are
+  otherwise physically connectable. Within a correctly-shaped hand,
+  more than one legal placement arrangement can exist (the three
+  dominoes can close the table on either of the two double values),
+  and `MoveGenerator` offers all of them.
+- Both RATUS and RIBU can fail in two distinct ways — wrong shape
+  (table ends not equal after the move) or correct shape but the
+  relevant domino value(s) not yet exhausted from other players'
+  hands — and both failure modes receive an identical penalty; they
+  are not distinguished in scoring.
+- When RATUS or RIBU fails, there is no winner (`winner = None`),
+  unlike GUPLAH (which always has a winner regardless of whether the
+  maker succeeded).
+
+**Implementation notes**: `find_guplah_winner` and `find_dom_loser`
+were deliberately NOT reused for RATUS/RIBU winner determination —
+RATUS/RIBU winner logic is trivial (the maker, if successful) and
+structurally unrelated to DOM/GUPLAH's tie-break search. The
+combination-search algorithm for RATUS/RIBU placement generation
+(`MoveGenerator._generate_multi_placement_moves`) is shared between
+both, driven by a new pure, side-effect-free
+`Table.simulate_placement` static method, so the connection-legality
+logic itself is never duplicated between `Table` and
+`MoveGenerator`.
+
+All 101 tests passed on the first real pytest run after this entire
+migration and feature implementation — the most complex single unit
+of work in the project's history to date.
+
+---
+
+# Immediate Next Tasks
+
+1. Guard RuleSystem.evaluate against being called on an unfinished
    game (currently falls through to FinishType.NORMAL silently).
-5. Begin Match Engine.
+2. Begin Match Engine.
 
 ---
 
@@ -372,17 +490,15 @@ Rules:
 
 Current foundation tests:
 
-✅ Passing
+✅ Passing (deck, player, move, table, move_generator, game,
+game_end_result)
 
 Current RuleSystem tests:
 
-✅ 35 tests written. 21/34 passed on the first real pytest run;
-the 13 failures were all `AttributeError: FinishType has no
-attribute 'GUPLAH'` (see Regression History), not logic errors —
-every test that called `find_guplah_winner` / `calculate_guplah_score`
-directly passed on the first try. Fixed by adding `FinishType.GUPLAH`
-to `game_end_result.py` and wiring up `SpecialResult.GUPLAH` /
-`FAILED_GUPLAH`. Not yet re-run by the project owner after this fix.
+✅ Passing. Full test suite across the entire project: 101 tests,
+all passing on the first real pytest run after the Move/Placement
+migration and RATUS/RIBU implementation (see Regression History for
+the full account of what was built and verified).
 
 ---
 
