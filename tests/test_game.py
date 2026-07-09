@@ -1,5 +1,5 @@
 from domino import Domino
-from move import Move
+from move import Move, MoveType
 from placement import Placement
 from side import Side
 from game import Game
@@ -63,7 +63,58 @@ def test_choose_move():
 
     chosen = game.choose_move(moves)
 
-    assert chosen == moves[0]
+    # Default chooser sekarang memilih ACAK di antara move NORMAL,
+    # jadi kita cek keanggotaan, bukan kesamaan persis dengan
+    # moves[0].
+    assert chosen in moves
+
+
+def test_choose_move_prioritizes_ratus_over_normal():
+    game = Game()
+
+    normal_move = Move(
+        placements=[Placement(Domino(6, 6), Side.LEFT)]
+    )
+    ratus_move = Move(
+        placements=[
+            Placement(Domino(5, 5), Side.LEFT),
+            Placement(Domino(6, 5), Side.RIGHT),
+        ],
+        move_type=MoveType.RATUS,
+    )
+
+    moves = [normal_move, ratus_move]
+
+    # Dijalankan berulang kali supaya tidak kebetulan lolos --
+    # RATUS harus SELALU dipilih setiap kali, bukan cuma sesekali.
+    for _ in range(20):
+        chosen = game.choose_move(moves)
+        assert chosen == ratus_move
+
+
+def test_set_move_chooser_overrides_single_player():
+    game = Game()
+
+    fixed_move = Move(
+        placements=[Placement(Domino(1, 1), Side.LEFT)]
+    )
+
+    def always_pick_first(moves):
+        return fixed_move
+
+    game.set_move_chooser(0, always_pick_first)
+
+    other_move = Move(
+        placements=[Placement(Domino(2, 2), Side.LEFT)]
+    )
+
+    # Pemain index 0 memakai chooser kustom.
+    game.current_player = 0
+    assert game.choose_move([other_move]) == fixed_move
+
+    # Pemain lain TIDAK terpengaruh, tetap pakai default chooser.
+    game.current_player = 1
+    assert game.choose_move([other_move]) == other_move
 
 
 def test_play_turn_play():
